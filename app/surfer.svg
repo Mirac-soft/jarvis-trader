@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="31" fill="#0b2239"/>
+  <!-- dalga -->
+  <path d="M2 46 C14 46 18 22 36 18 C50 15 60 24 58 34 C55 27 47 25 42 30 C38 34 40 41 46 42 C36 47 22 52 2 52 Z" fill="#0ea5e9"/>
+  <path d="M58 34 C55 27 47 25 42 30 C40 32 39.5 35 40.5 37.5" fill="none" stroke="#e0f2fe" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M2 56 C16 53 30 53 62 56 L62 64 L2 64 Z" fill="#0369a1"/>
+  <!-- sörf tahtası -->
+  <ellipse cx="26" cy="37" rx="13" ry="2.6" transform="rotate(-18 26 37)" fill="#f59e0b" stroke="#78350f" stroke-width="1"/>
+  <!-- sörfçü -->
+  <circle cx="27" cy="16.5" r="3.6" fill="#fde68a"/>
+  <path d="M26.5 20.5 L24.5 28.5" stroke="#f1f5f9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M24.5 28.5 L19.5 34.5 M24.5 28.5 L30 34" stroke="#f1f5f9" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M26 22.5 L19 20 M26 22.5 L33 21" stroke="#f1f5f9" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

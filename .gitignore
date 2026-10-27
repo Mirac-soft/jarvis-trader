@@ -1,0 +1,16 @@
+# Gizli bilgiler asla repoya girmez
+.env
+*.env
+secrets*
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Veriler ~/.trader altinda tutulur
+*.db
+*.csv.gz

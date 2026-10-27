@@ -1,0 +1,72 @@
+# Trader ayarları. Gizli bilgi (API anahtarı) BURAYA YAZILMAZ.
+# Anahtarlar: %USERPROFILE%\.trader\secrets.env (OneDrive dışında).
+# Risk değerleri trader/safety.py içindeki sabit tavanları aşamaz.
+
+[general]
+mode = "backtest"          # backtest | paper   (gerçek para modu henüz kapalı)
+symbol = "BTC/USDT"       # Tek coin testleri için
+symbols = ["BTC/USDT", "ETH/USDT"]
+start_equity = 1000.0      # Test sermayesi (USDT)
+
+[data]
+exchange = "binance"       # Sadece herkese açık fiyat verisi, anahtarsız
+timeframe = "15m"
+since = "2020-01-01"
+
+[costs]
+fee = 0.002                # İşlem başı %0,20 (BtcTurk başlangıç seviyesi, temkinli)
+slippage = 0.0005          # İşlem başı %0,05 fiyat kayması
+
+[risk]
+risk_per_trade = 0.01      # Her işlemde sermayenin %1'i riske girer
+max_position_fraction = 1.0
+max_daily_loss = 0.03      # Gün içinde %3 kayıpta yeni işlem açılmaz
+max_drawdown = 0.25        # Zirveden %25 düşüşte bot durur, insan onayı gerekir
+min_notional = 10.0        # Bundan küçük emir açılmaz
+cooldown_bars = 4          # Bir işlem kapanınca beklenecek bar sayısı
+
+[turtle]                   # Strateji A: 4 saatlik kırılım (Kaplumbağa)
+entry_channel = 55
+exit_channel = 20
+trend_ema = 200
+atr_period = 20
+stop_atr = 2.0
+trail_atr = 3.0
+max_units = 1              # Kademeli alım KAPALI: 4 birim testte %25 frenine takıldı (2026-10-28)
+add_step_atr = 0.5         # Kademeli alım açılırsa her 0,5 ATR yükselişte 1 birim
+
+[surfer]                   # Strateji C: günlük trend sörfü
+fast_ema = 50
+slow_ema = 200
+atr_period = 20
+stop_atr = 3.0
+trail_atr = 4.0
+
+# ---- Bot ekibi: sermaye ikiye bölünür, her botun kendi riski ve freni var ----
+[team]
+# Testte seçildi (2026-10-28): sinyallere karışan kurallar kârı düşürdü,
+# fren dayanışması hiçbir kazanç kaybettirmeden ek koruma sağlıyor.
+rule = "fren_dayanismasi"
+
+
+[bots.kaplumbaga]
+strategy = "turtle"
+capital_share = 0.5
+risk_per_trade = 0.01
+max_drawdown = 0.25
+
+[bots.sorfcu]
+strategy = "surfer"
+capital_share = 0.5
+risk_per_trade = 0.02      # Testte bu değerle doğrulandı; sabit tavan %2
+max_drawdown = 0.30        # Sabit tavan %30
+
+[pullback]                 # Strateji B: 4s trend + 15dk geri çekilme girişi
+fast_ema = 50
+slow_ema = 200
+adx_min = 20.0
+rsi_period = 14
+rsi_trigger = 35.0
+atr_period = 14            # 1 saatlik ATR
+stop_atr = 2.0
+trail_atr = 3.0

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS Trader</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/icon.svg" alt="" width="28" height="28">
+      <span>JARVIS</span>
+      <span class="badge paper">PAPER · SAHTE PARA</span>
+      <span class="badge team" id="ruleBadge">Ekip kuralı: —</span>
+    </div>
+    <div class="status"><span id="clock" class="muted"></span></div>
+    <div class="actions">
+      <button id="notifyBtn" class="btn ghost" type="button">🔕 Bildirimleri aç</button>
+      <button id="killBtn" class="btn danger" type="button">ACİL DURDUR</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <main>
+    <section class="kpis">
+      <div class="kpi"><div class="label">Ekip sermayesi</div><div class="value" id="kEquity">—</div><div class="sub" id="kEquitySub"></div></div>
+      <div class="kpi"><div class="label">Bugün</div><div class="value" id="kDay">—</div><div class="sub">iki bot toplam</div></div>
+      <div class="kpi"><div class="label">Toplam getiri</div><div class="value" id="kTotal">—</div><div class="sub">başlangıçtan beri</div></div>
+      <div class="kpi"><div class="label">Nakit</div><div class="value" id="kCash">—</div><div class="sub" id="kCashSub"></div></div>
+      <div class="kpi"><div class="label">Açık pozisyon</div><div class="value" id="kPos">—</div><div class="sub" id="kPosSub"></div></div>
+    </section>
+
+    <section class="bots">
+      <article class="bot turtle" id="bot-kaplumbaga">
+        <div class="bot-head">
+          <img src="/turtle.svg" alt="Kaplumbağa" class="bot-icon">
+          <div class="bot-title">
+            <h2>Kaplumbağa</h2>
+            <div class="muted tagline">4 saatlik kırılımları yakalar · sabırlı ve disiplinli</div>
+          </div>
+          <span class="pill" data-f="pill">—</span>
+          <button class="btn small" type="button" data-f="btn">—</button>
+        </div>
+        <div class="bot-kpis">
+          <div><span>Sermaye</span><b data-f="equity">—</b></div>
+          <div><span>Getiri</span><b data-f="ret">—</b></div>
+          <div><span>Zirveden düşüş</span><b data-f="dd">—</b></div>
+          <div><span>Risk / fren</span><b data-f="risk">—</b></div>
+        </div>
+        <div class="coins" data-f="coins"></div>
+        <div class="thought" data-f="thought"></div>
+      </article>
+
+      <article class="bot surfer" id="bot-sorfcu">
+        <div class="bot-head">
+          <img src="/surfer.svg" alt="Sörfçü" class="bot-icon">
+          <div class="bot-title">
+            <h2>Sörfçü</h2>
+            <div class="muted tagline">Günlük büyük dalgalara biner · trend bitene kadar kalır</div>
+          </div>
+          <span class="pill" data-f="pill">—</span>
+          <button class="btn small" type="button" data-f="btn">—</button>
+        </div>
+        <div class="bot-kpis">
+          <div><span>Sermaye</span><b data-f="equity">—</b></div>
+          <div><span>Getiri</span><b data-f="ret">—</b></div>
+          <div><span>Zirveden düşüş</span><b data-f="dd">—</b></div>
+          <div><span>Risk / fren</span><b data-f="risk">—</b></div>
+        </div>
+        <div class="coins" data-f="coins"></div>
+        <div class="thought" data-f="thought"></div>
+      </article>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <div class="card-head"><h2>Sermaye eğrisi</h2>
+          <div class="legend"><i class="lg ekip"></i>Ekip <i class="lg kaplumbaga"></i>Kaplumbağa <i class="lg sorfcu"></i>Sörfçü</div>
+        </div>
+        <canvas id="chart" height="260"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>📻 Ekip telsizi</h2><span class="muted">botlar arası haberleşme</span></div>
+        <div id="radio" class="radio"></div>
+        <ul id="radioMsgs" class="insights"></ul>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <div class="card-head"><h2>Olay akışı</h2><span class="muted">canlı</span></div>
+        <ul id="events" class="events"></ul>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>İşlem geçmişi</h2></div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Bot</th><th>Coin</th><th>Giriş</th><th>Çıkış</th><th>Kâr/Zarar</th><th>Neden</th></tr></thead>
+          <tbody id="trades"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Geçmiş testler (backtest)</h2><span class="muted">1000 USDT ile, %0,25 maliyet, BTC + ETH</span></div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Test</th><th>Dönem</th><th>Getiri</th><th>Yıllık</th><th>En büyük düşüş</th><th>Sharpe</th><th>İşlem</th></tr></thead>
+        <tbody id="backtests"></tbody></table>
+      </div>
+    </section>
+
+    <footer class="muted">
+      Panel sadece bu bilgisayardan erişilebilir · alım-satım emri verilemez ·
+      acil durdurma: yeni işlem açılmaz, açık pozisyonların stopları çalışmaya devam eder
+    </footer>
+  </main>
+  <div id="toasts" class="toasts"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
