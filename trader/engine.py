@@ -80,18 +80,18 @@ class Portfolio:
         """Diğer botların bilgisine göre risk çarpanı. Asla 1'in üstüne çıkamaz."""
         return min(1.0, max(0.0, self.gate(s))) if self.gate else 1.0
 
-    def _emit(self, t, kind, msg, trade=None):
+    def _emit(self, t, kind, msg, trade=None, meta=None):
         if kind not in ("DUR", "GUN_FRENI"):          # bunları risk yöneticisi kaydeder
             self.rm.events.append((t, kind, msg))
         if self.on_event:
-            self.on_event(t, kind, msg, trade)
+            self.on_event(t, kind, msg, trade, meta)
 
     def _risk_update(self, t):
         n = len(self.rm.events)
         self.rm.update(self.equity(), t)
         for ev in self.rm.events[n:]:
             if self.on_event:
-                self.on_event(ev[0], ev[1], ev[2], None)
+                self.on_event(ev[0], ev[1], ev[2], None, None)
 
     def roll_day(self, t):
         if t.date() != self.day:
@@ -118,7 +118,8 @@ class Portfolio:
         b.last_add = fill
         b.stop = max(b.stop, stop)       # eklemede tüm pozisyonun stopu yukarı taşınır
         self._emit(t, "EKLEME" if adding else "ALIM",
-                   f"{s} {q:.6f} @ {fill:,.2f} (birim {b.units}/{self.max_units}), stop {b.stop:,.2f}")
+                   f"{s} {q:.6f} @ {fill:,.2f} (birim {b.units}/{self.max_units}), stop {b.stop:,.2f}",
+                   meta={"symbol": s, "price": fill})
 
     def _sell(self, s, t, px, why):
         b = self.books[s]
@@ -128,7 +129,8 @@ class Portfolio:
         tr = Trade(s, b.entry_t, t, b.cost / b.qty, fill, b.qty, proceeds - b.cost, why, b.units)
         self.trades.append(tr)
         self.books[s] = Book(cooldown=self.cooldown_bars)
-        self._emit(t, "SATIS", f"{s} @ {fill:,.2f} ({why}) kâr/zarar {tr.pnl:+,.2f} USDT", tr)
+        self._emit(t, "SATIS", f"{s} @ {fill:,.2f} ({why}) kâr/zarar {tr.pnl:+,.2f} USDT", tr,
+                   meta={"symbol": s, "price": fill, "reason": why})
 
     # ---- bar işleme ------------------------------------------------------
     def open_phase(self, s, t, price):
@@ -143,10 +145,13 @@ class Portfolio:
         b = self.books[s]
         b.pending = None
 
-    def close_phase(self, s, t, low, close, row):
-        """Bar kapanışı: zarar-kes, iz süren stop, frenler ve sonraki karar."""
+    def close_phase(self, s, t, low, close, row, check_stop=True):
+        """Bar kapanışı: zarar-kes, iz süren stop, frenler ve sonraki karar.
+
+        check_stop=False: stoplar zaten daha sık (saatlik/canlı) izleniyorsa.
+        """
         b = self.books[s]
-        if b.qty > 0 and low <= b.stop:
+        if check_stop and b.qty > 0 and low <= b.stop:
             open_px = self.last.get(s, b.stop)
             self._sell(s, t, min(open_px, b.stop), "zarar-kes" if b.stop < b.cost / b.qty else "iz-süren stop")
         self.last[s] = close
@@ -166,7 +171,37 @@ class Portfolio:
                 if self.gate_mult(s) > 0:
                     b.pending, b.pend_stop = "in", row.stop_dist
                 elif self.on_event:
-                    self.on_event(t, "YARDIM", f"{s} alım sinyali var ama ekip kuralı engelledi", None)
+                    self.on_event(t, "YARDIM", f"{s} alım sinyali var ama ekip kuralı engelledi", None, {"symbol": s})
+
+    def check_stop_bar(self, s, t, open_px, low, close):
+        """Backtest bekçisi: küçük bir barda (1s) stop değdi mi? (canlıdaki 10 sn bekçinin karşılığı)"""
+        b = self.books[s]
+        if b.qty > 0 and low <= b.stop:
+            self._sell(s, t, min(open_px, b.stop), "zarar-kes" if b.stop < b.cost / b.qty else "iz-süren stop")
+        self.last[s] = close
+
+    # ---- habere tepki (diğer bottan gelen önemli haber) ----------------
+    def tighten(self, s, t, price, dist, why) -> str | None:
+        """Kendi ATR'sine göre stopu yukarı çek. Stop asla aşağı inmez."""
+        b = self.books[s]
+        new = price - dist
+        if b.qty > 0 and new > b.stop:
+            b.stop = new
+            msg = f"{s} stop sıkılaştırıldı → {new:,.2f} ({why})"
+            self._emit(t, "TEPKI", msg, meta={"symbol": s})
+            return msg
+        return None
+
+    def early_entry(self, s, t, price, stop_dist, why) -> str | None:
+        """Kendi giriş şartı canlı fiyatla sağlanıyorsa bar kapanışını beklemeden gir."""
+        b = self.books[s]
+        if b.qty == 0 and b.cooldown == 0 and not b.pending and self.can_open() and self.gate_mult(s) > 0:
+            self._buy(s, t, price, stop_dist)
+            if self.books[s].qty > 0:
+                msg = f"{s} erken giriş ({why})"
+                self._emit(t, "TEPKI", msg, meta={"symbol": s})
+                return msg
+        return None
 
     def check_stop(self, s, t, price):
         """Canlı bekçi: fiyat stopun altına inerse beklemeden sat."""

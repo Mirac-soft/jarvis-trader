@@ -176,6 +176,69 @@ class TeamTests(unittest.TestCase):
             self.assertAlmostEqual(per_bot[n][0].iloc[-1], eq.iloc[-1], places=6)
 
 
+class MessagingTests(unittest.TestCase):
+    def _pf_with_position(self):
+        from types import SimpleNamespace
+
+        from trader.engine import Portfolio
+        t = pd.Timestamp("2026-01-01", tz="UTC")
+        pf = Portfolio(CFG, 1000, ["BTC/USDT"])
+        pf.close_phase("BTC/USDT", t, 99, 100, SimpleNamespace(entry=True, exit=False, stop_dist=10.0, trail_dist=40.0))
+        pf.open_phase("BTC/USDT", t, 100)
+        return pf, t
+
+    def test_tighten_only_moves_stop_up(self):
+        pf, t = self._pf_with_position()
+        old = pf.books["BTC/USDT"].stop
+        self.assertIsNone(pf.tighten("BTC/USDT", t, 50, 5, "test"))      # aşağı çekmeye çalış
+        self.assertEqual(pf.books["BTC/USDT"].stop, old)
+        self.assertIsNotNone(pf.tighten("BTC/USDT", t, 100, 2, "test"))
+        self.assertAlmostEqual(pf.books["BTC/USDT"].stop, 98)
+
+    def test_receiver_decides_with_own_rules(self):
+        """Haber 'acting' listesinde değilse alan bot işlem yapmaz, sadece gerekçe yazar."""
+        from types import SimpleNamespace
+
+        from trader import team
+        pf, t = self._pf_with_position()
+        # Sörfçü ATR = 8 / 4 = 2 -> sıkılaştırma mesafesi 2 x 2 = 4 -> yeni stop 96 (eski ~90)
+        row = SimpleNamespace(trail_dist=8.0, stop_dist=6.0, breakout_level=95.0, trend_level=90.0)
+        stop = pf.books["BTC/USDT"].stop
+        acted, why = team.evaluate(pf, "surfer", CFG, "SERT_DUSUS", "BTC/USDT", t, 100, row, "Kaplumbağa",
+                                   team.ALARM_SETS["trend"])
+        self.assertFalse(acted)
+        self.assertEqual(pf.books["BTC/USDT"].stop, stop)
+        self.assertIn("pozisyonda kalıyorum", why)
+        acted, why = team.evaluate(pf, "surfer", CFG, "TREND_KIRILDI", "BTC/USDT", t, 100, row, "Kaplumbağa",
+                                   team.ALARM_SETS["trend"])
+        self.assertTrue(acted)
+        self.assertGreater(pf.books["BTC/USDT"].stop, stop)
+
+    def test_alarms_only_from_important_events(self):
+        from trader import team
+        allx = team.ALL_ALARMS
+        self.assertEqual(team.alarms_for("turtle", "SATIS", {"symbol": "BTC/USDT", "price": 1, "reason": "zarar-kes"}, allx), [])
+        self.assertEqual(len(team.alarms_for("surfer", "SATIS", {"symbol": "BTC/USDT", "price": 1, "reason": "sinyal"}, allx)), 1)
+        self.assertEqual(team.alarms_for("surfer", "ALIM", {"symbol": "BTC/USDT", "price": 1}, allx), [])
+        self.assertEqual(len(team.alarms_for("turtle", "ALIM", {"symbol": "BTC/USDT", "price": 1}, allx)), 1)
+
+    def test_backtest_with_alarms_no_lookahead(self):
+        """Haberleşmeli ekip testi: geleceği değiştirmek geçmiş sermayeyi değiştirmemeli."""
+        from trader import team
+        df = fake_prices(n=30000, seed=5)
+        cut = df.index[22000]
+        def run(d):
+            sigs = {n: {"BTC/USDT": team.signals(CFG, n, d)} for n in CFG["bots"]}
+            watch = {"BTC/USDT": team.watch_frame(d)}
+            total, _ = team.run_team(CFG, sigs, "fren_dayanismasi", team.ALL_ALARMS, watch)
+            return total.loc[:cut - pd.Timedelta("2D")]
+        a = run(df)
+        df2 = df.copy()
+        df2.loc[df2.index > cut, ["open", "high", "low", "close"]] *= 0.5
+        b = run(df2)
+        pd.testing.assert_series_equal(a, b)
+
+
 class ReportTests(unittest.TestCase):
     BAR = pd.Timedelta("4h")
 

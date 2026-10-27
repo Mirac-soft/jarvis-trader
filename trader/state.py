@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS board (       -- botların haber panosu: trend görü
     bot TEXT NOT NULL, symbol TEXT NOT NULL, trend_up INTEGER, in_pos INTEGER, ts TEXT NOT NULL,
     PRIMARY KEY (bot, symbol)
 );
+CREATE TABLE IF NOT EXISTS messages (    -- botlar arası önemli haberler
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, sender TEXT NOT NULL, receiver TEXT NOT NULL,
+    kind TEXT NOT NULL, symbol TEXT NOT NULL, price REAL,
+    handled_ts TEXT, response TEXT       -- alan botun KENDİ değerlendirmesi
+);
 CREATE TABLE IF NOT EXISTS reports (     -- haftalık kontrol raporları
     ts TEXT NOT NULL, verdict TEXT NOT NULL, body TEXT NOT NULL
 );
@@ -100,6 +106,26 @@ def add_snapshot(run_id, t, equity, cash, detail: dict):
     with closing(connect()) as con, con:
         con.execute("INSERT INTO snapshots VALUES (?,?,?,?,?)",
                     (run_id, iso(t), equity, cash, json.dumps(detail, default=str)))
+
+
+def send_message(sender, receiver, kind, symbol, price):
+    with closing(connect()) as con, con:
+        con.execute("INSERT INTO messages(ts, sender, receiver, kind, symbol, price) VALUES (?,?,?,?,?,?)",
+                    (datetime.now(timezone.utc).isoformat(), sender, receiver, kind, symbol, price))
+
+
+def inbox(receiver):
+    """Bu bota gelen, henüz değerlendirilmemiş haberler (eskiden yeniye)."""
+    with closing(connect()) as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM messages WHERE receiver=? AND handled_ts IS NULL ORDER BY id", (receiver,))]
+
+
+def answer_message(msg_id, response):
+    with closing(connect()) as con, con:
+        con.execute("UPDATE messages SET handled_ts=?, response=? WHERE id=?",
+                    (datetime.now(timezone.utc).isoformat(), response, msg_id))
 
 
 def last_report_age_days() -> float | None:

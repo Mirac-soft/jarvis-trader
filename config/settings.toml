@@ -47,6 +47,11 @@ trail_atr = 4.0
 # Testte seçildi (2026-10-28): sinyallere karışan kurallar kârı düşürdü,
 # fren dayanışması hiçbir kazanç kaybettirmeden ek koruma sağlıyor.
 rule = "fren_dayanismasi"
+# Haberleşme: her bot kendi kulvarında karar verir; önemli olayda diğerine haber
+# gönderir, alan KENDİ kuralıyla değerlendirir. Testte (2026-10-28):
+#   trend kırıldı -> stop sıkılaştırma: zararsız, koruyucu  => İŞLEMLE TEPKİ
+#   sert düşüş / kırılım -> işlemle tepki kârı düşürdü     => değerlendir, kaydet
+alarms = "trend"
 
 
 [bots.kaplumbaga]

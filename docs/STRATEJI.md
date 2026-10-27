@@ -74,6 +74,22 @@ değeri trendi Sörfçü'den ÖNCE yakalamasında). Fren dayanışması hiç kaz
 kaybettirmeden kriz anı sigortası sağlıyor → canlıda bu kural var. Botlar ayrıca
 haber panosunda görüşlerini paylaşıyor (panelde "Ekip telsizi").
 
+### Haberleşme modeli (2026-10-28, kullanıcının tarifi)
+Botlar birlikte karar VERMEZ. Her bot kendi kulvarında karar verir; çok önemli
+bir şey olursa diğerine haber gönderir, haberi alan KENDİ kuralı ve KENDİ
+verisiyle hemen (bar kapanışını beklemeden) değerlendirir.
+
+| Haber | Gönderen | Alanın değerlendirmesi |
+|---|---|---|
+| TREND KIRILDI | ikisi de (kendi kuralıyla trend bitti deyip sattığında) | pozisyondaysa stopu kendi ATR'sinin yarısına sıkılaştırır |
+| SERT DÜŞÜŞ (1 saatte > 3 ATR) | 🐢 hızlı gözcü | değerlendirir, gerekçesini yazar, işlem yapmaz |
+| KIRILIM | 🐢 yeni yükselişe girince | 🏄 dalga şartını canlı fiyatla kontrol eder, gerekçesini yazar |
+
+Test (stoplar saatlik izlenerek, 1000 $): haber yok +157% · trend haberi +157%
+(4 tepki) · + sert düşüş tepkisi +142% · + erken giriş +143%. Sert düşüşte stop
+sıkılaştırmak Sörfçü'yü büyük dalgalardan erken düşürdü → bu haberlere işlemle
+değil, gerekçeli değerlendirmeyle karşılık veriliyor. Ayar: `team.alarms`.
+
 ## Eski sonraki adımlar
 1. Strateji A'yı güçlendir — sadece mantıklı ve az parametreli eklemelerle:
    birden fazla coin (BTC + ETH), Kaplumbağaların kademeli alım (pyramiding) kuralı.

@@ -8,7 +8,10 @@ const BOTS = {
 };
 const RULE_NAMES = { bagimsiz: "bağımsız", buyuk_resim: "büyük resim", risk_paylasimi: "risk paylaşımı",
                      fren_dayanismasi: "fren dayanışması", hepsi: "tüm kurallar" };
-const NOTIFY_KINDS = new Set(["ALIM", "EKLEME", "SATIS", "DUR", "GUN_FRENI", "HATA", "KAPANDI", "YARDIM"]);
+const NOTIFY_KINDS = new Set(["ALIM", "EKLEME", "SATIS", "DUR", "GUN_FRENI", "HATA", "KAPANDI", "YARDIM", "HABER", "TEPKI"]);
+const ALARM_NAMES = { TREND_KIRILDI: "trend kırıldı", SERT_DUSUS: "sert düşüş", KIRILIM: "kırılım başladı" };
+const ALARMS_ACTING = { yok: [], trend: ["TREND_KIRILDI"], trend_dusus: ["TREND_KIRILDI", "SERT_DUSUS"],
+                        tam: ["TREND_KIRILDI", "SERT_DUSUS", "KIRILIM"] };
 const state = { lastEventId: 0, firstEvents: true, overview: null, equity: [] };
 
 const num = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -206,7 +209,26 @@ async function renderRadio(o) {
     msgs.unshift([braked ? "bad" : "good", braked ? "🛡 Fren dayanışması devrede: bir botun freni çalıştı, diğeri de yeni işlem açmıyor."
                                         : "🛡 Fren dayanışması hazır: iki botun freni de normal. Biri frene basarsa diğeri de yeni işlem açmaz."]);
   if (!symbols.length) msgs.push(["", "Botlar henüz haber paylaşmadı. Çalışmaya başlayınca burada konuşacaklar."]);
+  const acting = (ALARMS_ACTING[o.alarms] || []).map((k) => ALARM_NAMES[k]);
+  msgs.push(["", `📨 Haberleşme: her bot kendi kulvarında karar verir. Önemli olayda (trend kırıldı, sert düşüş, kırılım) diğerine haber gider; alan kendi kuralıyla hemen değerlendirir. İşlemle tepki: ${acting.join(", ") || "yok"}.`]);
   $("radioMsgs").replaceChildren(...msgs.map(([k, t]) => el("li", k, t)));
+  renderAlarms();
+}
+
+async function renderAlarms() {
+  let rows;
+  try { rows = await api("/api/messages"); } catch { return; }
+  const list = $("alarmLog");
+  if (!rows.length) { list.replaceChildren(el("li", "muted", "Henüz önemli bir olay olmadı. Botlar sessizce kendi işini yapıyor.")); return; }
+  list.replaceChildren(...rows.map((m) => {
+    const li = el("li"), route = el("div", "route"), s = BOTS[m.sender], r = BOTS[m.receiver];
+    route.append(img(s.icon, "", s.label), document.createTextNode("→"), img(r.icon, "", r.label),
+                 el("span", "k", `${short(m.symbol)} ${ALARM_NAMES[m.kind] || m.kind}`), el("span", "tm", time(m.ts)));
+    const acted = (m.response || "").startsWith("Uyguladım");
+    li.append(route, el("div", "resp" + (acted ? " acted" : ""),
+      m.response ? `${r.label}: ${m.response}` : `${r.label} değerlendiriyor…`));
+    return li;
+  }));
 }
 
 // ---------- olaylar ----------
@@ -245,8 +267,10 @@ async function refreshBacktests() {
   let rows;
   try { rows = await api("/api/backtests"); } catch { return; }
   const period = (p) => p.startsWith("2024") ? "2024+ (görülmemiş)" : p.endsWith("2023-12-31") ? "2020–2023" : "Tümü";
-  const label = (n) => n.startsWith("EKIP_") ? `🐢+🏄 Ekip · ${RULE_NAMES[n.slice(5)] || n.slice(5)}` : n;
-  const live = `EKIP_${state.overview?.rule}`;
+  const ALARM_SET_NAMES = { yok: "haber yok", trend: "trend haberi", trend_dusus: "trend + sert düşüş", tam: "tüm haberler" };
+  const label = (n) => n.startsWith("EKIP_") ? `🐢+🏄 Ekip · ${RULE_NAMES[n.slice(5)] || n.slice(5)}`
+    : n.startsWith("HABER_") ? `📨 Haberleşme · ${ALARM_SET_NAMES[n.slice(6)] || n.slice(6)}` : n;
+  const live = `HABER_${state.overview?.alarms}`;
   rows.sort((a, b) => (b.name === live) - (a.name === live) || a.name.localeCompare(b.name));
   $("backtests").replaceChildren(...rows.map((r) => {
     const s = r.summary, tr = el("tr", r.name === live ? "best" : "");

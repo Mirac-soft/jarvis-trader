@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
 
 import ccxt
 import pandas as pd
 
 from . import data, state, team
+from . import indicators as ind
 from .engine import Portfolio
 from .launcher import bot_paths, try_lock
 from .safety import kill_switch_active, setup_logging
@@ -45,7 +47,13 @@ class PaperBot:
         self.ex = ccxt.binance({"enableRateLimit": True})     # anahtarsız, sadece okuma
         self.board = team.DbBoard(state)
         other = next(o for o in cfg["bots"] if o != name)
+        self.other = other
         gate = team.make_gate(cfg["team"]["rule"], name, other, self.board)
+        self.acting = team.ALARM_SETS[cfg["team"]["alarms"]]     # işlemle tepki verilen haberler
+        self.last_rows: dict = {}                                 # kendi son kapanmış bar verisi
+        self.price_hist = {s: deque() for s in self.symbols}      # sert düşüş gözcüsü (son 1 saat)
+        self.atr1h: dict = {}
+        self.last_crash: dict = {}
         self.info: dict = {}
         self.errors = 0
         sf = self.paths["state"]
@@ -65,11 +73,48 @@ class PaperBot:
             self.last_bar = {}
             self.record(now(), "BASLADI", f"{team.BOT_NAMES[name]} başladı, sahte sermaye {capital:,.0f} USDT")
 
-    def record(self, t, kind, msg, trade=None):
+    def record(self, t, kind, msg, trade=None, meta=None):
         self.log.info("%s %s", kind, msg)
         state.add_event(self.run_id, t, kind, msg)
         if trade is not None:
             state.add_trade(self.run_id, trade)
+        for alarm, s, price in team.alarms_for(self.strategy, kind, meta, team.ALL_ALARMS):
+            self.send_alarm(t, alarm, s, price)
+
+    # ---- haberleşme ------------------------------------------------------
+    def send_alarm(self, t, alarm, s, price):
+        state.send_message(self.name, self.other, alarm, s, price)
+        self.record(t, "HABER", f"{team.BOT_NAMES[self.other]}'e haber: {s.split('/')[0]} {team.ALARM_TEXT[alarm]}"
+                                f" ({price:,.2f})")
+
+    def watch_crash(self, t, prices):
+        """Hızlı gözcü (Kaplumbağa): 1 saatte 3 ATR'den sert düşüşü yakalar."""
+        if self.strategy != "turtle":
+            return
+        for s, p in prices.items():
+            hist = self.price_hist[s]
+            hist.append((t, p))
+            while hist and hist[0][0] < t - pd.Timedelta("65min"):
+                hist.popleft()
+            ref = next((px for ts, px in hist if ts <= t - pd.Timedelta("60min")), None)
+            atr = self.atr1h.get(s)
+            recent = self.last_crash.get(s)
+            if ref and atr and p - ref <= -team.CRASH_ATR * atr and (recent is None or t - recent > pd.Timedelta("60min")):
+                self.last_crash[s] = t
+                self.send_alarm(t, "SERT_DUSUS", s, p)
+
+    def read_inbox(self, t, prices):
+        """Gelen haberleri KENDİ kuralımla, KENDİ güncel fiyatımla hemen değerlendir."""
+        for m in state.inbox(self.name):
+            s = m["symbol"]
+            if s not in self.pf.books or m["kind"] not in team.ALARM_TEXT or m["sender"] not in team.BOT_NAMES:
+                state.answer_message(m["id"], "Geçersiz haber: yok sayıldı.")     # bozuk/tanımsız haber botu düşüremez
+                continue
+            acted, why = team.evaluate(self.pf, self.strategy, self.bcfg, m["kind"], s, t, prices.get(s, m["price"]),
+                                       self.last_rows.get(s), team.BOT_NAMES[m["sender"]], self.acting)
+            state.answer_message(m["id"], why)
+            self.record(t, "TEPKI" if acted else "DEGERLENDIRME",
+                        f"{team.BOT_NAMES[m['sender']]} haberi ({s.split('/')[0]} {team.ALARM_TEXT[m['kind']]}): {why}")
 
     def save(self):
         sf = self.paths["state"]
@@ -96,6 +141,10 @@ class PaperBot:
                 self.pf.close_phase(s, row.Index + self.bar, row.low, row.close, row)
                 self.last_bar[s] = row.Index
             last = closed.iloc[-1]
+            self.last_rows[s] = last
+            if self.strategy == "turtle":
+                h1 = ind.resample(df, "1h")
+                self.atr1h[s] = float(ind.atr(h1, 14).iloc[-1])
             self.info[s] = {
                 "bar": str(closed.index[-1] + self.bar),
                 "trend_yukari": bool(last["trend_up"]),
@@ -155,6 +204,8 @@ class PaperBot:
                 tickers = self.ex.fetch_tickers(self.symbols)
                 prices = {s: float(tickers[s]["last"]) for s in self.symbols}
                 self.tick(prices)
+                self.watch_crash(now(), prices)
+                self.read_inbox(now(), prices)
                 self.share_news()
                 if time.time() - last_snap >= SNAPSHOT_SEC:
                     self.snapshot(prices)

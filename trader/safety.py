@@ -55,6 +55,9 @@ def validate_config(cfg: dict) -> None:
     if rule not in {"bagimsiz", "buyuk_resim", "risk_paylasimi", "fren_dayanismasi", "hepsi"}:
         raise SafetyError(f"Bilinmeyen yardımlaşma kuralı: {rule}")
 
+    if cfg.get("team", {}).get("alarms", "yok") not in {"yok", "trend", "trend_dusus", "tam"}:
+        raise SafetyError("Bilinmeyen haberleşme ayarı (team.alarms).")
+
     bots = cfg.get("bots", {})
     if bots and abs(sum(b["capital_share"] for b in bots.values()) - 1.0) > 1e-9:
         raise SafetyError("Botların sermaye payları toplamı %100 olmalı.")

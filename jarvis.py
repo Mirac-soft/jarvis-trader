@@ -77,26 +77,32 @@ def cmd_ekip_test(cfg):
     d, g = cfg["data"], cfg["general"]
     raw = {s: data.load(d["exchange"], s, d["timeframe"]) for s in g["symbols"]}
     sigs_all = {n: {s: team.signals(cfg, n, raw[s]) for s in g["symbols"]} for n in cfg["bots"]}
+    watch_all = {s: team.watch_frame(raw[s]) for s in g["symbols"]}
     eq0 = g["start_equity"]
+    # (etiket, kapı kuralı, haber seti, saatlik gözcü). Haber varyantları sonuçlara bakmadan belirlendi.
+    variants = [(f"EKIP_{r}", r, "yok", False) for r in team.RULES]
+    variants += [(f"HABER_{a}", cfg["team"]["rule"], a, True) for a in team.ALARM_SETS]
     rows = []
-    for rule in team.RULES:
+    for label, rule, alarm_set, use_watch in variants:
         for pname, (start, end) in PERIODS.items():
             sigs = {n: {s: x.loc[start:end] for s, x in by.items()} for n, by in sigs_all.items()}
-            total, per_bot = team.run_team(cfg, sigs, rule)
+            watch = {s: w.loc[start:end] for s, w in watch_all.items()} if use_watch else None
+            total, per_bot = team.run_team(cfg, sigs, rule, team.ALARM_SETS[alarm_set], watch)
             trades = [t for _, tr, _ in per_bot.values() for t in tr]
             events = [e for _, _, ev in per_bot.values() for e in ev]
             s = metrics.summarize(total, trades, eq0)
-            state.save_run(f"EKIP_{rule}", "backtest", f"{start}..{end or 'bugun'}", s, total, trades, events)
+            state.save_run(label, "backtest", f"{start}..{end or 'bugun'}", s, total, trades, events)
             for n, (eq, tr, _) in per_bot.items():
                 s[f"{n}_getiri_%"] = metrics.summarize(eq, tr, team.bot_capital(cfg, n))["toplam_getiri_%"]
             s["frenler"] = len([e for e in events if e[1] == "DUR"])
-            rows.append({"kural": rule, "donem": pname, **s})
-    table = pd.DataFrame(rows).set_index(["kural", "donem"])
+            s["tepkiler"] = len([e for e in events if e[1] == "TEPKI"])
+            rows.append({"test": label, "donem": pname, **s})
+    table = pd.DataFrame(rows).set_index(["test", "donem"])
     pd.set_option("display.width", 250)
     for pname in PERIODS:
         print(f"\n=== {pname} ===")
         print(table.xs(pname, level="donem")[["toplam_getiri_%", "yillik_getiri_%", "en_buyuk_dusus_%", "sharpe",
-              "islem_sayisi", "kar_faktoru", "kaplumbaga_getiri_%", "sorfcu_getiri_%", "frenler"]].round(2).to_string())
+              "islem_sayisi", "kar_faktoru", "kaplumbaga_getiri_%", "sorfcu_getiri_%", "frenler", "tepkiler"]].round(2).to_string())
 
 
 def cmd_durum(cfg):

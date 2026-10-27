@@ -86,7 +86,8 @@ def api_overview(_):
         bots[b] = info
     for b in launcher.BOTS:     # henüz hiç çalışmamış bot da görünsün
         bots.setdefault(b, {"label": BOT_LABELS[b], "running": launcher.bot_running(b)})
-    return {"now": now.isoformat(), "kill_switch": kill_switch_active(), "rule": CFG["team"]["rule"], "bots": bots}
+    return {"now": now.isoformat(), "kill_switch": kill_switch_active(), "rule": CFG["team"]["rule"],
+            "alarms": CFG["team"]["alarms"], "bots": bots}
 
 
 def api_equity(_):
@@ -143,6 +144,11 @@ def api_backtests(_):
     return [{**r, "summary": json.loads(r["summary"])} for r in rows]
 
 
+def api_messages(_):
+    return q("SELECT id, ts, sender, receiver, kind, symbol, price, handled_ts, response "
+             "FROM messages ORDER BY id DESC LIMIT 30")
+
+
 def api_report(_):
     r = q("SELECT body FROM reports ORDER BY rowid DESC LIMIT 1")
     return json.loads(r[0]["body"]) if r else None
@@ -150,7 +156,7 @@ def api_report(_):
 
 GET_ROUTES = {"/api/overview": api_overview, "/api/equity": api_equity, "/api/events": api_events,
               "/api/trades": api_trades, "/api/board": api_board, "/api/backtests": api_backtests,
-              "/api/report": api_report}
+              "/api/report": api_report, "/api/messages": api_messages}
 _last_report_request = [0.0]
 
 

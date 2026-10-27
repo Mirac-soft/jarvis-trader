@@ -57,6 +57,9 @@ Her katman bir öncekinden bağımsız çalışır; biri atlatılsa bile diğeri
 - Haber panosundan 15 dakikadan eski haber "haber yok" sayılır.
 - Fren dayanışması: bir botun freni çalışırsa diğeri de yeni işlem açmaz.
 - İki bot aynı veri dosyasına aynı anda yazamaz (dosya kilidi + atomik yazma).
+- Haberleşme: bir haber stopu sadece YUKARI çekebilir (asla aşağı indiremez),
+  geçersiz/bozuk haber (bilinmeyen coin, tür veya gönderen) yok sayılır, botu düşüremez.
+  Haberle gelen fiyat değil, alan botun kendi güncel fiyatı kullanılır.
 
 ## Katman 9 — Kontrol raporu (`trader/report.py`)
 - Canlı botların kararlarını aynı dönemde test motorunun kararlarıyla karşılaştırır:
