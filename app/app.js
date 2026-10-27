@@ -257,6 +257,36 @@ async function refreshBacktests() {
   }));
 }
 
+// ---------- kontrol raporu ----------
+$("reportBtn").addEventListener("click", () => {
+  control("report_now");
+  setTimeout(refreshReport, 45000); setTimeout(refreshReport, 90000);
+});
+async function refreshReport() {
+  let r;
+  try { r = await api("/api/report"); } catch { return; }
+  if (!r) return;
+  const kind = r.karar === "UYUMLU" ? "ok" : r.karar === "UYARI" ? "warn" : "bad";
+  const text = { ok: "Canlı = test ✓", warn: "Dikkat edilmeli", bad: "İncelenmeli" }[kind];
+  $("reportDate").textContent = `son kontrol: ${time(r.tarih)}`;
+  const v = el("div", `verdict ${kind}`, r.karar);
+  v.append(el("small", null, text));
+  const cards = Object.entries(r.botlar || {}).map(([name, b]) => {
+    const c = el("div", "rep-bot"), h = el("div", "h");
+    if (BOTS[name]) h.append(img(BOTS[name].icon, "", b.ad));
+    h.append(document.createTextNode(b.ad),
+             el("span", "pill " + (b.karar === "UYUMLU" ? "ok" : b.karar === "UYARI" ? "warn" : "bad"), b.karar));
+    c.append(h,
+      el("div", null, `İşlemler: canlı ${b.canli_islem} · test ${b.test_islem} · eşleşen ${b.eslesen}`),
+      el("div", null, `Açık kalma: %${num(b["calisma_%"], 1)} (${num(b.gun, 1)} gün) · hata (7 gün): ${b.hata_7gun}`),
+      el("div", null, `Açık pozisyon: canlı ${b.canli_acik.length ? b.canli_acik.map(short).join(", ") : "yok"} · test ${b.test_acik.length ? b.test_acik.map(short).join(", ") : "yok"}`));
+    const notes = [...b.farklar, ...b.kapali_araliklar.map((x) => `Kapalıydı: ${x}`), ...b.frenler];
+    if (notes.length) { const ul = el("ul"); notes.slice(0, 6).forEach((n) => ul.append(el("li", null, n))); c.append(ul); }
+    return c;
+  });
+  $("report").replaceChildren(v, ...cards);
+}
+
 // ---------- grafik ----------
 async function refreshEquity() {
   try { state.equity = await api("/api/equity"); } catch { return; }
@@ -308,3 +338,4 @@ refreshEvents(); setInterval(refreshEvents, 5000);
 refreshTrades(); setInterval(refreshTrades, 30000);
 setInterval(refreshEquity, 60000);
 setInterval(refreshBacktests, 300000);
+refreshReport(); setInterval(refreshReport, 300000);

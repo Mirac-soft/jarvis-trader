@@ -93,9 +93,18 @@ def open_window():
         webbrowser.open(URL)
 
 
+def start_report() -> str:
+    _spawn("rapor")
+    return "Kontrol raporu hazırlanıyor (yaklaşık 1 dakika)."
+
+
 def main():
+    from .state import last_report_age_days
     for name in BOTS:
         start_bot(name)
+    age = last_report_age_days()
+    if age is None or age >= 7:          # haftalık otomatik kontrol
+        start_report()
     if not panel_running():
         _spawn("panel")
         for _ in range(40):

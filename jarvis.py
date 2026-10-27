@@ -8,6 +8,7 @@ Kullanım:
   python jarvis.py ekip-test   -> Kaplumbağa + Sörfçü ekibini yardımlaşma kurallarıyla test et
   python jarvis.py bot kaplumbaga|sorfcu -> tek bir botu çalıştır
   python jarvis.py panel       -> sadece panel sunucusunu çalıştır
+  python jarvis.py rapor       -> canlı botlar test motoruyla uyumlu mu? (kontrol raporu)
   python jarvis.py fren-sifirla kaplumbaga|sorfcu -> düşüş freninden sonra botu yeniden aç (onay ister)
 """
 from __future__ import annotations
@@ -149,7 +150,14 @@ def cmd_fren_sifirla(cfg, name=""):
     print(f"Fren sıfırlandı. Yeni zirve: {equity:,.2f} USDT")
 
 
-COMMANDS = {"veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
+def cmd_rapor(cfg):
+    """Canlı botları test motoruyla karşılaştıran kontrol raporu."""
+    from trader import report
+    rep = report.run(cfg)
+    print(report.to_markdown(rep))
+
+
+COMMANDS = {"rapor": cmd_rapor, "veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
             "panel": cmd_panel, "uygulama": cmd_uygulama, "fren-sifirla": cmd_fren_sifirla}
 
 if __name__ == "__main__":

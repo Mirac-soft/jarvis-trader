@@ -58,7 +58,17 @@ Her katman bir öncekinden bağımsız çalışır; biri atlatılsa bile diğeri
 - Fren dayanışması: bir botun freni çalışırsa diğeri de yeni işlem açmaz.
 - İki bot aynı veri dosyasına aynı anda yazamaz (dosya kilidi + atomik yazma).
 
-## Katman 9 — Mobil erişim (bkz. MOBIL.md)
+## Katman 9 — Kontrol raporu (`trader/report.py`)
+- Canlı botların kararlarını aynı dönemde test motorunun kararlarıyla karşılaştırır:
+  eksik/fazla işlem, %1'den büyük fiyat farkı, farklı açık pozisyon → "FARK VAR".
+- Botun kapalı kaldığı süreleri bulur (kapalıyken stoplar çalışmaz) → "UYARI".
+- Haftalık otomatik; gerçek paraya geçiş şartı raporların UYUMLU olması.
+
+## Katman 10 — Sürüm kaydı
+- Kod yerel git deposunda; her değişiklik kayıtlı, geri alınabilir.
+- `.gitignore` gizli dosyaları (`.env`, `secrets*`, anahtarlar) ve verileri dışarıda tutar.
+
+## Katman 11 — Mobil erişim (bkz. MOBIL.md)
 - Telefon sadece **okur**. Emir verme yetkisi yok.
 - İnternete açık değil; sadece Tailscale özel ağı üzerinden erişim.
 

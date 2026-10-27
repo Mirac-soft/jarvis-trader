@@ -176,5 +176,45 @@ class TeamTests(unittest.TestCase):
             self.assertAlmostEqual(per_bot[n][0].iloc[-1], eq.iloc[-1], places=6)
 
 
+class ReportTests(unittest.TestCase):
+    BAR = pd.Timedelta("4h")
+
+    def t(self, sym, entry_time, entry=100.0, exit=110.0):
+        return {"symbol": sym, "entry_time": entry_time, "exit_time": entry_time, "entry": entry, "exit": exit}
+
+    def test_matching_trades_pass(self):
+        from trader.report import _match
+        live = [self.t("BTC/USDT", "2026-01-01T04:01:00+00:00", 100.3)]   # 1 dk gecikme, %0,3 kayma
+        sim = [self.t("BTC/USDT", "2026-01-01 04:00:00+00:00", 100.0)]
+        matched, issues = _match(live, sim, self.BAR)
+        self.assertEqual((matched, issues), (1, []))
+
+    def test_missing_and_extra_trades_caught(self):
+        from trader.report import _match
+        live = [self.t("ETH/USDT", "2026-01-01T04:01:00+00:00")]
+        sim = [self.t("BTC/USDT", "2026-01-01 04:00:00+00:00")]
+        matched, issues = _match(live, sim, self.BAR)
+        self.assertEqual(matched, 0)
+        self.assertEqual(len(issues), 2)          # biri canlıda fazla, biri testte fazla
+
+    def test_price_mismatch_caught(self):
+        from trader.report import _match
+        live = [self.t("BTC/USDT", "2026-01-01T04:01:00+00:00", 103.0)]   # %3 fark
+        sim = [self.t("BTC/USDT", "2026-01-01 04:00:00+00:00", 100.0)]
+        _, issues = _match(live, sim, self.BAR)
+        self.assertTrue(any("fiyatı farkı" in i for i in issues))
+
+    def test_downtime_detected(self):
+        from unittest import mock
+
+        from trader import report
+        start = pd.Timestamp("2026-01-01", tz="UTC")
+        snaps = [{"ts": (start + pd.Timedelta(minutes=m)).isoformat()} for m in list(range(0, 60)) + list(range(180, 240))]
+        with mock.patch.object(report, "_q", return_value=snaps):
+            up, gaps = report._uptime(1, start, start + pd.Timedelta(minutes=240))
+        self.assertAlmostEqual(up, 50.4, delta=1)      # 2 saatlik kesinti yakalandı
+        self.assertEqual(len(gaps), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

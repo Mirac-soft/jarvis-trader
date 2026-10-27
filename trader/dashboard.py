@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -142,8 +143,15 @@ def api_backtests(_):
     return [{**r, "summary": json.loads(r["summary"])} for r in rows]
 
 
+def api_report(_):
+    r = q("SELECT body FROM reports ORDER BY rowid DESC LIMIT 1")
+    return json.loads(r[0]["body"]) if r else None
+
+
 GET_ROUTES = {"/api/overview": api_overview, "/api/equity": api_equity, "/api/events": api_events,
-              "/api/trades": api_trades, "/api/board": api_board, "/api/backtests": api_backtests}
+              "/api/trades": api_trades, "/api/board": api_board, "/api/backtests": api_backtests,
+              "/api/report": api_report}
+_last_report_request = [0.0]
 
 
 def control(action: str, bot: str) -> str:
@@ -154,6 +162,11 @@ def control(action: str, bot: str) -> str:
     if action == "kill_off":
         KILL_SWITCH.unlink(missing_ok=True)
         return "Acil durdurma kapatıldı: botlar risk sınırları içinde işlem açabilir."
+    if action == "report_now":
+        if time.time() - _last_report_request[0] < 120:
+            return "Rapor zaten hazırlanıyor, biraz bekle."
+        _last_report_request[0] = time.time()
+        return launcher.start_report()
     if bot not in launcher.BOTS:
         raise ValueError("bilinmeyen bot")
     if action == "bot_start":

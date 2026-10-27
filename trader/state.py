@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS board (       -- botların haber panosu: trend görü
     bot TEXT NOT NULL, symbol TEXT NOT NULL, trend_up INTEGER, in_pos INTEGER, ts TEXT NOT NULL,
     PRIMARY KEY (bot, symbol)
 );
+CREATE TABLE IF NOT EXISTS reports (     -- haftalık kontrol raporları
+    ts TEXT NOT NULL, verdict TEXT NOT NULL, body TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS bot_flags (   -- botların fren durumu (fren dayanışması için)
     bot TEXT PRIMARY KEY, halted INTEGER, day_blocked INTEGER, ts TEXT NOT NULL
 );
@@ -97,6 +100,17 @@ def add_snapshot(run_id, t, equity, cash, detail: dict):
     with closing(connect()) as con, con:
         con.execute("INSERT INTO snapshots VALUES (?,?,?,?,?)",
                     (run_id, iso(t), equity, cash, json.dumps(detail, default=str)))
+
+
+def last_report_age_days() -> float | None:
+    try:
+        with closing(connect_readonly()) as con:
+            r = con.execute("SELECT ts FROM reports ORDER BY rowid DESC LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return None
+    if not r:
+        return None
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(r[0])).total_seconds() / 86400
 
 
 def heartbeat(bot: str, status: str):
