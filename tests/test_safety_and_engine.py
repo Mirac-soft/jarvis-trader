@@ -272,6 +272,151 @@ class ReadOnlyExchangeTests(unittest.TestCase):
                 exchange.ReadOnlyBtcTurk()
 
 
+class FakeBtcTurk:
+    """Gerçek borsa yerine: emirleri kaydeder, hemen doldurur."""
+
+    def __init__(self, ask=4_000_000.0, bid=3_999_000.0, try_free=200.0, btc=0.0):
+        self.ask, self.bid, self.try_free, self.btc = ask, bid, try_free, btc
+        self.orders = []
+
+    def load_markets(self):
+        return {"BTC/TRY": {"limits": {"cost": {"min": 99.91}}}}
+
+    def fetch_order_book(self, s, n):
+        return {"bids": [[self.bid, 1]], "asks": [[self.ask, 1]]}
+
+    def fetch_balance(self):
+        return {"free": {"TRY": self.try_free, "BTC": self.btc}, "total": {"TRY": self.try_free, "BTC": self.btc}}
+
+    def amount_to_precision(self, s, a):
+        return f"{int(a * 1e8) / 1e8:.8f}"
+
+    def price_to_precision(self, s, p):
+        return f"{round(p):.0f}"
+
+    def create_order(self, s, typ, side, amount, price, params):
+        assert typ == "limit"
+        self.orders.append((side, amount, price))
+        cost = amount * price
+        if side == "buy":
+            self.try_free -= cost * 1.0009
+            self.btc += amount
+        else:
+            self.try_free += cost * (1 - 0.0009)
+            self.btc -= amount
+        return {"id": str(len(self.orders))}
+
+    def fetch_open_orders(self, s):
+        return []
+
+    def cancel_order(self, oid, s):
+        raise AssertionError("iptal beklenmiyordu")
+
+    def fetch_my_trades(self, s, limit=50):
+        side, amount, price = self.orders[-1]
+        return [{"order": str(len(self.orders)), "amount": amount, "cost": amount * price,
+                 "fee": {"cost": amount * price * 0.0009, "currency": "TRY"}}]
+
+
+class SupervisedOrderTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from trader import live_order
+        self.tmp = Path(tempfile.mkdtemp())
+        self.patches = [mock.patch.object(live_order, "PLAN_FILE", self.tmp / "plan.json"),
+                        mock.patch.object(live_order, "STATE_FILE", self.tmp / "durum.json"),
+                        mock.patch.object(live_order, "kill_switch_active", return_value=False),
+                        mock.patch.object(live_order.time, "sleep", lambda s: None),
+                        mock.patch.object(live_order.SupervisedTrader, "_record", lambda self, r: None)]
+        for p in self.patches:
+            p.start()
+        self.lo = live_order
+        self.ex = FakeBtcTurk()
+        self.tr = live_order.SupervisedTrader(ex=self.ex)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_full_buy_then_sell_cycle(self):
+        p = self.tr.plan("buy")
+        self.assertLessEqual(p["cost_try"], self.lo.MAX_ORDER_TRY)
+        r = self.tr.execute(p["code"])
+        self.assertEqual(r["mutabakat"], "UYUMLU")
+        self.assertGreater(self.tr.bought_amount(), 0)
+        p2 = self.tr.plan("sell")
+        self.assertAlmostEqual(p2["amount"], self.tr.bought_amount())
+        self.tr.execute(p2["code"])
+        self.assertEqual(self.tr.bought_amount(), 0)
+        self.assertEqual([o[0] for o in self.ex.orders], ["buy", "sell"])
+
+    def test_wrong_code_sends_nothing_and_kills_plan(self):
+        from trader.safety import SafetyError
+        self.tr.plan("buy")
+        with self.assertRaises(SafetyError):
+            self.tr.execute("YANLIS")
+        self.assertEqual(self.ex.orders, [])
+        self.assertFalse(self.lo.PLAN_FILE.exists())
+
+    def test_expired_plan_refused(self):
+        import json
+
+        from trader.safety import SafetyError
+        p = self.tr.plan("buy")
+        p["expires"] = 0
+        self.lo.PLAN_FILE.write_text(json.dumps(p))
+        with self.assertRaises(SafetyError):
+            self.tr.execute(p["code"])
+        self.assertEqual(self.ex.orders, [])
+
+    def test_price_move_refused(self):
+        from trader.safety import SafetyError
+        p = self.tr.plan("buy")
+        self.ex.ask *= 1.02
+        with self.assertRaises(SafetyError):
+            self.tr.execute(p["code"])
+        self.assertEqual(self.ex.orders, [])
+
+    def test_kill_switch_blocks(self):
+        from unittest import mock
+
+        from trader.safety import SafetyError
+        p = self.tr.plan("buy")
+        with mock.patch.object(self.lo, "kill_switch_active", return_value=True):
+            with self.assertRaises(SafetyError):
+                self.tr.execute(p["code"])
+        self.assertEqual(self.ex.orders, [])
+
+    def test_cap_and_minimum(self):
+        from unittest import mock
+
+        from trader.safety import SafetyError
+        with mock.patch.object(self.lo, "BUY_TRY", 500.0):
+            self.ex.try_free = 1000
+            with self.assertRaises(SafetyError):
+                self.tr.plan("buy")
+        with mock.patch.object(self.lo, "BUY_TRY", 50.0):
+            with self.assertRaises(SafetyError):
+                self.tr.plan("buy")
+
+    def test_cannot_sell_btc_not_bought_by_test(self):
+        from trader.safety import SafetyError
+        self.ex.btc = 0.01                    # hesapta başka BTC var
+        with self.assertRaises(SafetyError):
+            self.tr.plan("sell")
+
+    def test_bots_cannot_use_live_orders(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent / "trader"
+        for name in ("paper.py", "engine.py", "team.py", "dashboard.py", "launcher.py", "report.py"):
+            src = (root / name).read_text(encoding="utf-8")
+            self.assertNotIn("live_order", src, name)
+            self.assertNotIn("create_order", src, name)
+
+
 class SettleTests(unittest.TestCase):
     def test_pending_decision_is_settled_like_live(self):
         """Son kapanışta verilen alım kararı, raporda da canlıdaki gibi uygulanmalı."""

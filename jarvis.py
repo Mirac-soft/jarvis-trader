@@ -181,10 +181,42 @@ def cmd_baglanti(cfg):
     print("Açık emir sayısı:", len(ex.open_orders()))
 
 
-COMMANDS = {"rapor": cmd_rapor, "baglanti": cmd_baglanti, "veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
+def cmd_tesisat(cfg, *args):
+    """Denetimli gerçek emir testi:
+       tesisat durum | tesisat plan al | tesisat plan sat | tesisat uygula KOD
+    """
+    from trader.live_order import SupervisedTrader
+    from trader.safety import SafetyError
+    args = list(args) or ["durum"]
+    try:
+        tr = SupervisedTrader()
+        if args[0] == "durum":
+            q, b = tr.quote(), tr.balances()
+            print(f"BTC/TRY alış {q['bid']:,.0f} / satış {q['ask']:,.0f}")
+            print(f"Bakiye: {b['TRY']['free']:.2f} TL kullanılabilir, {b['BTC']['total']:.8f} BTC")
+            print(f"Testte alınmış BTC: {tr.bought_amount():.8f}")
+        elif args[0] == "plan" and len(args) > 1:
+            p = tr.plan({"al": "buy", "sat": "sell"}[args[1]])
+            print(f"PLAN: {'ALIM' if p['side'] == 'buy' else 'SATIŞ'} {p['amount']:.8f} BTC, "
+                  f"limit fiyat {p['limit_price']:,.0f} TL, tutar ~{p['cost_try']:.2f} TL")
+            print(f"ONAY KODU: {p['code']}  (5 dakika geçerli)")
+        elif args[0] == "uygula" and len(args) > 1:
+            r = tr.execute(args[1])
+            for k, v in r.items():
+                print(f"{k}: {v}")
+        else:
+            print(cmd_tesisat.__doc__)
+    except SafetyError as e:
+        print(f"DURDURULDU (güvenlik): {e}")
+    except Exception as e:      # anahtar içerebilecek detaylar yazılmaz
+        print(f"HATA: {type(e).__name__}: {str(e)[:150]}")
+
+
+COMMANDS = {"rapor": cmd_rapor, "baglanti": cmd_baglanti, "tesisat": cmd_tesisat, "veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
             "panel": cmd_panel, "uygulama": cmd_uygulama, "fren-sifirla": cmd_fren_sifirla}
 
 if __name__ == "__main__":
     config = load_config()    # Güvenlik duvarı: hatalı ayarda burada durur
     command = sys.argv[1] if len(sys.argv) > 1 else "durum"
-    COMMANDS[command](config, *sys.argv[2:3])
+    extra = sys.argv[2:4] if command == "tesisat" else sys.argv[2:3]
+    COMMANDS[command](config, *extra)
