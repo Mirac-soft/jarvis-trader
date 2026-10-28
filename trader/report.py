@@ -98,7 +98,9 @@ def build(cfg: dict) -> dict:
         first = min(pd.Timestamp(r["created"]) for r in runs.values())
         watch = {s: w[(w.index + pd.Timedelta("1h") > first) & (w.index + pd.Timedelta("1h") <= data_end)]
                  for s, w in ((s, team.watch_frame(df)) for s, df in raw.items())}
-        _, per_bot = team.run_team(cfg, sigs, cfg["team"]["rule"], team.ALARM_SETS[cfg["team"]["alarms"]], watch)
+        settle = (data_end, {s: float(df["close"].iloc[-1]) for s, df in raw.items()})
+        _, per_bot = team.run_team(cfg, sigs, cfg["team"]["rule"], team.ALARM_SETS[cfg["team"]["alarms"]],
+                                   watch, settle)
         for b, (_, trades, _) in per_bot.items():
             for t in trades:
                 row = {"symbol": t.symbol, "entry_time": str(t.entry_time), "exit_time": str(t.exit_time),

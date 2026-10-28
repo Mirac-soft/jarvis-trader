@@ -239,6 +239,22 @@ class MessagingTests(unittest.TestCase):
         pd.testing.assert_series_equal(a, b)
 
 
+class SettleTests(unittest.TestCase):
+    def test_pending_decision_is_settled_like_live(self):
+        """Son kapanışta verilen alım kararı, raporda da canlıdaki gibi uygulanmalı."""
+        from trader import team
+        df = fake_prices(n=30000, seed=11)
+        sigs = {n: {"BTC/USDT": team.signals(CFG, n, df)} for n in CFG["bots"]}
+        sur = sigs["sorfcu"]["BTC/USDT"]
+        cut = sur.index[sur["entry"].to_numpy().nonzero()[0][0]]   # Sörfçü'nün ilk alım sinyali günü
+        trimmed = {n: {"BTC/USDT": s["BTC/USDT"].loc[:cut]} for n, s in sigs.items()}
+        end = cut + pd.Timedelta("1D")
+        _, without = team.run_team(CFG, trimmed, "bagimsiz")
+        _, with_settle = team.run_team(CFG, trimmed, "bagimsiz", settle=(end, {"BTC/USDT": 100.0}))
+        self.assertEqual(len([t for t in without["sorfcu"][1] if t.reason == "test-sonu"]), 0)
+        self.assertEqual(len([t for t in with_settle["sorfcu"][1] if t.reason == "test-sonu"]), 1)
+
+
 class ReportTests(unittest.TestCase):
     BAR = pd.Timedelta("4h")
 

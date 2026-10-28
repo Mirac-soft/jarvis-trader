@@ -178,11 +178,15 @@ def evaluate(pf: Portfolio, strategy: str, cfg: dict, alarm: str, s: str, t, pri
     return False, "Not aldım."
 
 
-def run_team(cfg: dict, sigs: dict, rule: str, alarms=frozenset(), watch: dict | None = None):
+def run_team(cfg: dict, sigs: dict, rule: str, alarms=frozenset(), watch: dict | None = None,
+             settle: tuple | None = None):
     """sigs: {bot: {symbol: signal_df}}. Olaylar zamana göre sıralanır (geleceği görmez).
 
     watch: {symbol: watch_frame} verilirse stoplar saatlik izlenir (canlıdaki bekçiye daha yakın)
     ve sert düşüş alarmı çalışır.
+    settle: (zaman, {symbol: fiyat}) verilirse son kapanışta verilmiş ama henüz uygulanmamış
+    kararlar bu fiyatla uygulanır. Canlı bot kararı bar kapanınca hemen uygular; kontrol
+    raporunun da aynısını yapması gerekir.
     """
     board = MemoryBoard()
     names = list(sigs)
@@ -245,6 +249,15 @@ def run_team(cfg: dict, sigs: dict, rule: str, alarms=frozenset(), watch: dict |
                 curves[n][1].append(pf.equity())
             board.set_flags(n, pf.rm.halted, pf.rm.day_blocked)
         total_t.append(t)
+        total_v.append(sum(p.equity() for p in pfs.values()))
+
+    if settle:                         # bekleyen kararları uygula (canlıdaki gibi)
+        t_end, prices = settle
+        for pf in pfs.values():
+            for s, b in pf.books.items():
+                if b.pending and s in prices:
+                    pf.open_phase(s, t_end, prices[s])
+        total_t.append(t_end)
         total_v.append(sum(p.equity() for p in pfs.values()))
 
     for n, pf in pfs.items():          # test sonunda açık pozisyonları kapat (maliyetiyle)
