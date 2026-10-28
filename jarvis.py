@@ -177,8 +177,11 @@ def cmd_baglanti(cfg):
         print(f"Bağlantı başarısız: {type(e).__name__}. Anahtarı ve IP iznini kontrol et.")
         return
     print("BtcTurk bağlantısı BAŞARILI (salt-okunur).")
-    print("Bakiye:", ", ".join(f"{c} {v['toplam']}" for c, v in bal.items()) or "boş")
-    print("Açık emir sayısı:", len(ex.open_orders()))
+    print("Bakiye:", ", ".join(f"{c} {v['toplam']:.2f}" for c, v in bal.items()) or "boş")
+    try:
+        print("Açık emir sayısı:", len(ex.open_orders()))
+    except Exception:     # BtcTurk açık emir listesini Al-Sat iznine bağlıyor; izin kapalıyken beklenen durum
+        print("Açık emirler: görülemiyor (anahtarda Al-Sat izni kapalı — beklenen durum)")
 
 
 def cmd_tesisat(cfg, *args):
