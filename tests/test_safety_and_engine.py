@@ -330,7 +330,8 @@ class SupervisedOrderTests(unittest.TestCase):
                         mock.patch.object(live_order, "STATE_FILE", self.tmp / "durum.json"),
                         mock.patch.object(live_order, "kill_switch_active", return_value=False),
                         mock.patch.object(live_order.time, "sleep", lambda s: None),
-                        mock.patch.object(live_order.SupervisedTrader, "_record", lambda self, r: None)]
+                        mock.patch.object(live_order.SupervisedTrader, "_record", lambda self, r: None),
+                        mock.patch.object(live_order, "log", mock.MagicMock())]   # gerçek emir kaydını kirletme
         for p in self.patches:
             p.start()
         self.lo = live_order
@@ -407,6 +408,28 @@ class SupervisedOrderTests(unittest.TestCase):
         self.ex.btc = 0.01                    # hesapta başka BTC var
         with self.assertRaises(SafetyError):
             self.tr.plan("sell")
+
+    def test_sell_needs_no_code_and_works_under_kill_switch(self):
+        from unittest import mock
+        p = self.tr.plan("buy")
+        self.tr.execute(p["code"])
+        with mock.patch.object(self.lo, "kill_switch_active", return_value=True):
+            r = self.tr.sell_now()                       # acil durdurma çıkışı engellemez
+        self.assertEqual(r["islem"], "SATIS")
+        self.assertEqual(self.tr.bought_amount(), 0)
+
+    def test_kill_switch_blocks_buy_plan(self):
+        from unittest import mock
+
+        from trader.safety import SafetyError
+        with mock.patch.object(self.lo, "kill_switch_active", return_value=True):
+            with self.assertRaises(SafetyError):
+                self.tr.plan("buy")
+
+    def test_no_buy_without_approval_path(self):
+        """Onaysız alım yapan bir fonksiyon olmamalı: tek alım yolu plan + kod."""
+        public = {n for n in dir(self.lo.SupervisedTrader) if not n.startswith("__")}
+        self.assertEqual(public, {"quote", "balances", "bought_amount", "plan", "execute", "sell_now", "_record"})
 
     def test_bots_cannot_use_live_orders(self):
         from pathlib import Path

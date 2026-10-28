@@ -85,8 +85,8 @@ class SupervisedTrader:
     def plan(self, side: str) -> dict:
         if side not in ("buy", "sell"):
             raise SafetyError("Sadece 'al' veya 'sat'.")
-        if kill_switch_active():
-            raise SafetyError("Acil durdurma açık: emir hazırlanmaz.")
+        if side == "buy" and kill_switch_active():      # acil durdurma yeni riski engeller, çıkışı değil
+            raise SafetyError("Acil durdurma açık: alım hazırlanmaz.")
         q, bal = self.quote(), self.balances()
         if side == "buy":
             if self.bought_amount() > 0:
@@ -117,13 +117,21 @@ class SupervisedTrader:
         return p
 
     # ---- 2. adım: onaylı uygulama ------------------------------------------------
+    def sell_now(self) -> dict:
+        """Satış: kullanıcı kuralı gereği onay istemez (2026-10-28).
+        Diğer duvarlar aynen geçerli: sadece testte alınan BTC, fiyatı sınırlı emir, mutabakat.
+        Not: ONAYSIZ ALIM fonksiyonu bilerek yoktur."""
+        p = self.plan("sell")
+        log.info("ONAYSIZ SATIS (kullanıcı kuralı: satışlar onay istemez)")
+        return self.execute(p["code"])
+
     def execute(self, code: str) -> dict:
-        if kill_switch_active():
-            raise SafetyError("Acil durdurma açık: emir gönderilmez.")
         if not PLAN_FILE.exists():
             raise SafetyError("Onay bekleyen plan yok.")
         p = json.loads(PLAN_FILE.read_text(encoding="utf-8"))
         PLAN_FILE.unlink()                                    # plan tek kullanımlık
+        if p["side"] == "buy" and kill_switch_active():
+            raise SafetyError("Acil durdurma açık: alım gönderilmez.")
         if code.strip().upper() != p["code"]:
             raise SafetyError("Onay kodu uyuşmuyor: plan iptal edildi.")
         if _now().timestamp() > p["expires"]:

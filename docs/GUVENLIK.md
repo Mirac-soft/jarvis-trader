@@ -79,3 +79,12 @@ Her katman bir öncekinden bağımsız çalışır; biri atlatılsa bile diğeri
 `tests/` klasöründeki testler bu kuralların bozulmadığını her değişiklikte kontrol eder:
 canlı mod engeli, risk tavanları, OneDrive engeli, kaldıraç engeli, geleceği görme
 hatası ve komisyonun gerçekten kesildiği.
+
+## Gerçek para tesisat testi (2026-10-28)
+- 200 TL ile denetimli test: ALIM (onay kodu 04F371) ve SATIŞ (kullanıcı kuralı: satış onaysız).
+- İki emir de tamamen doldu, iki mutabakat da UYUMLU. 200,00 TL → 199,39 TL (maliyet 0,61 TL).
+- Gerçek maliyet: komisyon %0,20 + komisyon KDV'si ≈ işlem başı %0,24. Backtest varsayımı %0,25 → gerçekçi.
+- Bulunan ve düzeltilen: IPv6 bağlantısı IP kısıtını bozuyordu (IPv4 zorlandı); bakiye için
+  BtcTurk'te "Toplam" izni gerekiyor.
+- Kural: gerçek ALIM her zaman kullanıcı onayı (plan + kod) ister; SATIŞ istemez.
+  Acil durdurma alımı engeller, satışı engellemez.

@@ -183,7 +183,8 @@ def cmd_baglanti(cfg):
 
 def cmd_tesisat(cfg, *args):
     """Denetimli gerçek emir testi:
-       tesisat durum | tesisat plan al | tesisat plan sat | tesisat uygula KOD
+       tesisat durum | tesisat plan al | tesisat uygula KOD   (alım: onay kodu gerekir)
+       tesisat sat                                            (satış: onay istemez)
     """
     from trader.live_order import SupervisedTrader
     from trader.safety import SafetyError
@@ -202,6 +203,10 @@ def cmd_tesisat(cfg, *args):
             print(f"ONAY KODU: {p['code']}  (5 dakika geçerli)")
         elif args[0] == "uygula" and len(args) > 1:
             r = tr.execute(args[1])
+            for k, v in r.items():
+                print(f"{k}: {v}")
+        elif args[0] == "sat":           # satış onay istemez (kullanıcı kuralı)
+            r = tr.sell_now()
             for k, v in r.items():
                 print(f"{k}: {v}")
         else:
