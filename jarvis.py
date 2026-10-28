@@ -163,7 +163,25 @@ def cmd_rapor(cfg):
     print(report.to_markdown(rep))
 
 
-COMMANDS = {"rapor": cmd_rapor, "veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
+def cmd_baglanti(cfg):
+    """BtcTurk salt-okunur bağlantı testi. Anahtarlar asla ekrana yazılmaz."""
+    from trader.exchange import ReadOnlyBtcTurk
+    from trader.safety import SECRETS_FILE, SafetyError
+    try:
+        ex = ReadOnlyBtcTurk()
+        bal = ex.balance()
+    except SafetyError as e:
+        print(f"Bağlantı kurulmadı: {e}\nDosya: {SECRETS_FILE}")
+        return
+    except Exception as e:      # yanlış anahtar, IP kısıtı vb. — anahtarı içerebilecek detay yazılmaz
+        print(f"Bağlantı başarısız: {type(e).__name__}. Anahtarı ve IP iznini kontrol et.")
+        return
+    print("BtcTurk bağlantısı BAŞARILI (salt-okunur).")
+    print("Bakiye:", ", ".join(f"{c} {v['toplam']}" for c, v in bal.items()) or "boş")
+    print("Açık emir sayısı:", len(ex.open_orders()))
+
+
+COMMANDS = {"rapor": cmd_rapor, "baglanti": cmd_baglanti, "veri": cmd_veri, "test": cmd_test, "ekip-test": cmd_ekip_test, "durum": cmd_durum, "bot": cmd_bot,
             "panel": cmd_panel, "uygulama": cmd_uygulama, "fren-sifirla": cmd_fren_sifirla}
 
 if __name__ == "__main__":

@@ -239,6 +239,39 @@ class MessagingTests(unittest.TestCase):
         pd.testing.assert_series_equal(a, b)
 
 
+class ReadOnlyExchangeTests(unittest.TestCase):
+    def _ex(self):
+        from unittest import mock
+
+        from trader import exchange
+        with mock.patch.object(exchange, "load_secrets",
+                               return_value={"BTCTURK_API_KEY": "k" * 40, "BTCTURK_API_SECRET": "s" * 40}):
+            return exchange.ReadOnlyBtcTurk()
+
+    def test_no_trading_or_withdraw_methods(self):
+        from trader.safety import SafetyError
+        ex = self._ex()
+        for name in ("create_order", "create_market_buy_order", "cancel_order", "withdraw", "transfer", "_ex2"):
+            with self.assertRaises(SafetyError):
+                getattr(ex, name)
+
+    def test_cannot_be_modified_and_hides_keys(self):
+        from trader.safety import SafetyError
+        ex = self._ex()
+        with self.assertRaises(SafetyError):
+            ex.create_order = lambda *a: None
+        self.assertNotIn("kkkk", repr(ex))
+
+    def test_missing_keys_refused(self):
+        from unittest import mock
+
+        from trader import exchange
+        from trader.safety import SafetyError
+        with mock.patch.object(exchange, "load_secrets", return_value={}):
+            with self.assertRaises(SafetyError):
+                exchange.ReadOnlyBtcTurk()
+
+
 class SettleTests(unittest.TestCase):
     def test_pending_decision_is_settled_like_live(self):
         """Son kapanışta verilen alım kararı, raporda da canlıdaki gibi uygulanmalı."""
