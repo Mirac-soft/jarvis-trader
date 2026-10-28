@@ -8,7 +8,8 @@ const BOTS = {
 };
 const RULE_NAMES = { bagimsiz: "bağımsız", buyuk_resim: "büyük resim", risk_paylasimi: "risk paylaşımı",
                      fren_dayanismasi: "fren dayanışması", hepsi: "tüm kurallar" };
-const NOTIFY_KINDS = new Set(["ALIM", "EKLEME", "SATIS", "DUR", "GUN_FRENI", "HATA", "KAPANDI", "YARDIM", "HABER", "TEPKI"]);
+const NOTIFY_KINDS = new Set(["ALIM", "EKLEME", "SATIS", "DUR", "GUN_FRENI", "HATA", "KAPANDI", "YARDIM", "HABER", "TEPKI",
+                              "ONAY_BEKLIYOR", "ONAY_IPTAL", "ONAY_SONUC"]);
 const ALARM_NAMES = { TREND_KIRILDI: "trend kırıldı", SERT_DUSUS: "sert düşüş", KIRILIM: "kırılım başladı" };
 const ALARMS_ACTING = { yok: [], trend: ["TREND_KIRILDI"], trend_dusus: ["TREND_KIRILDI", "SERT_DUSUS"],
                         tam: ["TREND_KIRILDI", "SERT_DUSUS", "KIRILIM"] };
@@ -91,6 +92,8 @@ async function refreshOverview() {
   try { o = await api("/api/overview"); } catch { toast("Panel sunucusuna ulaşılamıyor", "#ef4444"); return; }
   state.overview = o;
   $("ruleBadge").textContent = `Ekip kuralı: ${RULE_NAMES[o.rule] || o.rule}`;
+  $("modeBadge").textContent = o.live ? "GERÇEK PARA · BtcTurk" : "PAPER · SAHTE PARA";
+  $("modeBadge").className = "badge " + (o.live ? "live" : "paper");
   const kill = $("killBtn");
   kill.textContent = o.kill_switch ? "Acil durdurmayı kaldır" : "ACİL DURDUR";
   kill.classList.toggle("active", !!o.kill_switch);
@@ -281,6 +284,43 @@ async function refreshBacktests() {
   }));
 }
 
+// ---------- gerçek alım onayları ----------
+const seenApprovals = new Set();
+let firstApprovals = true;
+async function refreshApprovals() {
+  let r;
+  try { r = await api("/api/approvals"); } catch { return; }
+  const box = $("approvals"), list = $("approvalList");
+  box.classList.toggle("hidden", !r.pending.length);
+  list.replaceChildren(...r.pending.map((a) => {
+    const b = BOTS[a.bot], row = el("div", "appr"), what = el("div", "what");
+    const left = Math.max(0, (new Date(a.expires) - Date.now()) / 60000);
+    what.append(el("b", null, `${b.label}: ${short(a.symbol)} AL`),
+                el("div", null, `Tutar ~${num(a.usdt)} USDT · fiyat ~${usd(a.ref_price)} · stop fiyatın ~${num(a.stop_dist / a.ref_price * 100, 1)}% altında`),
+                el("div", "left", `Kalan süre: ${Math.floor(left)} dk`));
+    const ok = el("button", "btn ok", "Onayla"), no = el("button", "btn no", "Reddet");
+    ok.type = no.type = "button";
+    ok.addEventListener("click", () => {
+      if (confirm(`GERÇEK PARA: ${b.label} ~${num(a.usdt)} USDT ${short(a.symbol)} alsın mı?`)) controlApproval("approve", a.id);
+    });
+    no.addEventListener("click", () => controlApproval("reject", a.id));
+    row.append(img(b.icon, "", b.label), what, ok, no);
+    if (!seenApprovals.has(a.id)) {
+      seenApprovals.add(a.id);
+      if (!firstApprovals) notify({ bot: a.bot, kind: "ONAY", message: `${short(a.symbol)} için ~${num(a.usdt)} USDT gerçek alım onayını bekliyor` });
+    }
+    return row;
+  }));
+  firstApprovals = false;
+}
+async function controlApproval(action, id) {
+  const r = await fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" },
+                                         body: JSON.stringify({ action, id }) });
+  const j = await r.json();
+  toast(j.mesaj || j.hata || "Tamam", j.hata ? "#ef4444" : "#22c55e");
+  refreshApprovals();
+}
+
 // ---------- kontrol raporu ----------
 $("reportBtn").addEventListener("click", () => {
   control("report_now");
@@ -363,3 +403,4 @@ refreshTrades(); setInterval(refreshTrades, 30000);
 setInterval(refreshEquity, 60000);
 setInterval(refreshBacktests, 300000);
 refreshReport(); setInterval(refreshReport, 300000);
+refreshApprovals(); setInterval(refreshApprovals, 5000);

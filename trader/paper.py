@@ -23,7 +23,8 @@ from . import data, state, team
 from . import indicators as ind
 from .engine import Portfolio
 from .launcher import bot_paths, try_lock
-from .safety import kill_switch_active, setup_logging
+from .live_portfolio import LivePortfolio
+from .safety import SafetyError, assert_live_allowed, kill_switch_active, live_requested, setup_logging
 
 TICK_SEC = 10
 SNAPSHOT_SEC = 60
@@ -44,7 +45,19 @@ class PaperBot:
         self.symbols = cfg["general"]["symbols"]
         self.paths = bot_paths(name)
         self.log = setup_logging(name)
-        self.ex = ccxt.binance({"enableRateLimit": True})     # anahtarsız, sadece okuma
+        self.mode = "live" if live_requested(cfg) else "paper"
+        self.broker = None
+        self.state_file = self.paths["state"]
+        if self.mode == "live":
+            # Gerçek mod: şartlardan biri eksikse bot HİÇ başlamaz (sessizce paper'a da düşmez).
+            assert_live_allowed(cfg)
+            from .broker import LiveBroker
+            self.broker = LiveBroker(cfg)
+            self.broker.check_trade_permission()
+            self.ex = ccxt.btcturk({"enableRateLimit": True})   # fiyat: emirlerin gerçekleştiği borsa
+            self.state_file = self.paths["state"].with_name(f"{name}.canli.json")
+        else:
+            self.ex = ccxt.binance({"enableRateLimit": True})   # anahtarsız, sadece okuma
         self.board = team.DbBoard(state)
         other = next(o for o in cfg["bots"] if o != name)
         self.other = other
@@ -56,22 +69,33 @@ class PaperBot:
         self.last_crash: dict = {}
         self.info: dict = {}
         self.errors = 0
-        sf = self.paths["state"]
+        sf = self.state_file
+        PF = LivePortfolio if self.mode == "live" else Portfolio
+        para = "GERÇEK" if self.mode == "live" else "sahte"
         if sf.exists():
             saved = json.loads(sf.read_text(encoding="utf-8"))
             self.run_id = saved["run_id"]
-            self.pf = Portfolio.from_dict(saved["portfolio"], self.bcfg, self.symbols, True, self.record, gate)
+            self.pf = PF.from_dict(saved["portfolio"], self.bcfg, self.symbols, True, self.record, gate)
             self.last_bar = {s: pd.Timestamp(t) for s, t in saved["last_bar"].items()}
             self.info = saved.get("info", {})
-            self.record(now(), "BASLADI", f"{team.BOT_NAMES[name]} kaldığı yerden devam ediyor")
+            msg = f"{team.BOT_NAMES[name]} kaldığı yerden devam ediyor ({para} para)"
         else:
-            capital = team.bot_capital(cfg, name)
-            self.run_id = state.new_run(name, "paper", f"{now().date()}..", {"baslangic_sermaye": capital,
+            share = cfg["bots"][name]["capital_share"]
+            capital = cfg["live"]["capital_usdt"] * share if self.mode == "live" else team.bot_capital(cfg, name)
+            if self.mode == "live":
+                _, _, free = self.broker.balances(self.symbols[0])
+                if free < cfg["live"]["capital_usdt"]:
+                    raise SafetyError(f"Hesapta {free:.2f} USDT var; gerçek mod için {cfg['live']['capital_usdt']:.2f} gerekli.")
+            self.run_id = state.new_run(name, self.mode, f"{now().date()}..", {"baslangic_sermaye": capital,
                                         "strateji": self.strategy})
-            self.pf = Portfolio(self.bcfg, capital, self.symbols,
-                                cfg["turtle"]["max_units"] if self.strategy == "turtle" else 1, True, self.record, gate)
+            self.pf = PF(self.bcfg, capital, self.symbols,
+                         cfg["turtle"]["max_units"] if self.strategy == "turtle" else 1, True, self.record, gate)
             self.last_bar = {}
-            self.record(now(), "BASLADI", f"{team.BOT_NAMES[name]} başladı, sahte sermaye {capital:,.0f} USDT")
+            msg = f"{team.BOT_NAMES[name]} başladı, {para} sermaye {capital:,.2f} USDT"
+        if self.mode == "live":
+            self.pf.broker, self.pf.bot = self.broker, name
+            self.pf.approval_ttl = int(cfg["live"]["approval_ttl_min"] * 60)
+        self.record(now(), "BASLADI", msg)
 
     def record(self, t, kind, msg, trade=None, meta=None):
         self.log.info("%s %s", kind, msg)
@@ -117,7 +141,7 @@ class PaperBot:
                         f"{team.BOT_NAMES[m['sender']]} haberi ({s.split('/')[0]} {team.ALARM_TEXT[m['kind']]}): {why}")
 
     def save(self):
-        sf = self.paths["state"]
+        sf = self.state_file
         sf.parent.mkdir(parents=True, exist_ok=True)
         tmp = sf.with_suffix(".tmp")
         payload = {"run_id": self.run_id, "last_bar": {s: str(t) for s, t in self.last_bar.items()},
@@ -166,7 +190,23 @@ class PaperBot:
         for s, p in prices.items():
             self.pf.check_stop(s, t, p)
             if self.pf.books[s].pending:          # kapanışta verilen kararı hemen uygula
-                self.pf.open_phase(s, t, p)
+                self.pf.open_phase(s, t, p)       # canlıda alım = onay isteği
+        if self.mode == "live":
+            self.live_duties(t, prices)
+
+    def live_duties(self, t, prices):
+        """Gerçek mod: borsadaki stoplar ve kullanıcı onayları."""
+        for s in self.symbols:
+            self.pf.check_exchange_stop(s, t)     # stop borsada dolduysa kayda geçir
+            self.pf.sync_stop(s, t)               # stop yükseldiyse borsadakini taşı
+        nowdt = datetime.now(timezone.utc)
+        for a in state.approvals_for(self.name, "bekliyor"):
+            if nowdt > datetime.fromisoformat(a["expires"]):
+                state.set_approval(a["id"], "suresi_doldu", "onay gelmedi", only_from="bekliyor")
+                self.record(t, "ONAY_IPTAL", f"{a['symbol']} alım isteği #{a['id']} onaylanmadığı için düştü")
+        for a in state.approvals_for(self.name, "onaylandi"):
+            result = self.pf.execute_approved(a, t, prices[a["symbol"]])
+            self.record(t, "ONAY_SONUC", f"{a['symbol']} onaylı alım #{a['id']}: {result}")
 
     def snapshot(self, prices):
         rm = self.pf.rm
@@ -229,4 +269,10 @@ def main(cfg, name: str):
     if lock is None:
         return
     bot_paths(name)["shutdown"].unlink(missing_ok=True)
-    PaperBot(cfg, name).run()
+    try:
+        bot = PaperBot(cfg, name)
+    except SafetyError as e:          # gerçek mod şartı eksik vb.: sebebi panelde görünsün
+        state.heartbeat(name, f"BAŞLATILAMADI: {e}")
+        setup_logging(name).error("başlatılamadı: %s", e)
+        return
+    bot.run()

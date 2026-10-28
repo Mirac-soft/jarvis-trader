@@ -122,6 +122,17 @@ footer { text-align: center; font-size: 12px; padding-top: 8px; }
 .ev-icon, .tr-icon { width: 20px; height: 20px; vertical-align: middle; }
 .tag.YARDIM { color: #c4b5fd; } .tag.BASLADI, .tag.KAPANDI { color: var(--muted); }
 
+/* ---- gerçek mod ve onaylar ---- */
+.badge.live { background: #7f1d1d; color: #fecaca; }
+.approvals { background: rgba(245,158,11,.08); border: 2px solid var(--warn); border-radius: 14px; padding: 14px 16px; }
+.appr { display: flex; align-items: center; gap: 14px; background: var(--panel); border-radius: 10px; padding: 12px 14px; margin-top: 8px; flex-wrap: wrap; }
+.appr img { width: 40px; height: 40px; }
+.appr .what { flex: 1; min-width: 220px; line-height: 1.5; }
+.appr .what b { font-size: 16px; }
+.appr .left { color: var(--warn); font-weight: 600; font-variant-numeric: tabular-nums; }
+.btn.ok { background: #14532d; border-color: #166534; }
+.btn.no { background: transparent; }
+
 /* ---- haber akışı ---- */
 .sub-h { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; font-weight: 600; }
 .alarms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }

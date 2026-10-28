@@ -12,7 +12,7 @@
     <div class="brand">
       <img src="/icon.svg" alt="" width="28" height="28">
       <span>JARVIS</span>
-      <span class="badge paper">PAPER · SAHTE PARA</span>
+      <span class="badge paper" id="modeBadge">PAPER · SAHTE PARA</span>
       <span class="badge team" id="ruleBadge">Ekip kuralı: —</span>
     </div>
     <div class="status"><span id="clock" class="muted"></span></div>
@@ -25,6 +25,11 @@
   <div id="banner" class="banner hidden"></div>
 
   <main>
+    <section id="approvals" class="approvals hidden">
+      <div class="card-head"><h2>🔔 Onayını bekleyen GERÇEK alım</h2>
+        <span class="muted">Onaylamazsan hiçbir şey olmaz; süre dolunca istek düşer.</span></div>
+      <div id="approvalList"></div>
+    </section>
     <section class="kpis">
       <div class="kpi"><div class="label">Ekip sermayesi</div><div class="value" id="kEquity">—</div><div class="sub" id="kEquitySub"></div></div>
       <div class="kpi"><div class="label">Bugün</div><div class="value" id="kDay">—</div><div class="sub">iki bot toplam</div></div>

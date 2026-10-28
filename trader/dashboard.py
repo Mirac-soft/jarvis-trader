@@ -59,9 +59,10 @@ def runs():
     """Her botun en son paper çalıştırması: {bot: (run_id, summary)}"""
     out = {}
     for b in launcher.BOTS:
-        r = q("SELECT id, summary FROM runs WHERE mode='paper' AND name=? ORDER BY id DESC LIMIT 1", (b,))
+        mode = "live" if CFG.get("live", {}).get("enabled") else "paper"
+        r = q("SELECT id, summary FROM runs WHERE mode=? AND name=? ORDER BY id DESC LIMIT 1", (mode, b))
         if r:
-            out[b] = (r[0]["id"], json.loads(r[0]["summary"]))
+            out[b] = (r[0]["id"], {**json.loads(r[0]["summary"]), "_mode": mode})
     return out
 
 
@@ -75,7 +76,7 @@ def api_overview(_):
     bots = {}
     for b, (rid, summary) in runs().items():
         hb = beats.get(b)
-        info = {"label": BOT_LABELS[b], "running": launcher.bot_running(b), "run_id": rid,
+        info = {"label": BOT_LABELS[b], "running": launcher.bot_running(b), "run_id": rid, "mode": summary.get("_mode"),
                 "start_equity": summary.get("baslangic_sermaye"), "strategy": summary.get("strateji"),
                 "risk": CFG["bots"][b]["risk_per_trade"], "brake": CFG["bots"][b]["max_drawdown"],
                 "heartbeat": {**hb, "age": (now - datetime.fromisoformat(hb["ts"])).total_seconds()} if hb else None}
@@ -87,7 +88,7 @@ def api_overview(_):
     for b in launcher.BOTS:     # henüz hiç çalışmamış bot da görünsün
         bots.setdefault(b, {"label": BOT_LABELS[b], "running": launcher.bot_running(b)})
     return {"now": now.isoformat(), "kill_switch": kill_switch_active(), "rule": CFG["team"]["rule"],
-            "alarms": CFG["team"]["alarms"], "bots": bots}
+            "alarms": CFG["team"]["alarms"], "live": bool(CFG.get("live", {}).get("enabled")), "bots": bots}
 
 
 def api_equity(_):
@@ -144,6 +145,12 @@ def api_backtests(_):
     return [{**r, "summary": json.loads(r["summary"])} for r in rows]
 
 
+def api_approvals(_):
+    """Bekleyen gerçek alım onayları ve son kararlar."""
+    return {"pending": q("SELECT * FROM approvals WHERE status='bekliyor' ORDER BY id"),
+            "recent": q("SELECT * FROM approvals WHERE status!='bekliyor' ORDER BY id DESC LIMIT 10")}
+
+
 def api_messages(_):
     return q("SELECT id, ts, sender, receiver, kind, symbol, price, handled_ts, response "
              "FROM messages ORDER BY id DESC LIMIT 30")
@@ -156,11 +163,26 @@ def api_report(_):
 
 GET_ROUTES = {"/api/overview": api_overview, "/api/equity": api_equity, "/api/events": api_events,
               "/api/trades": api_trades, "/api/board": api_board, "/api/backtests": api_backtests,
-              "/api/report": api_report, "/api/messages": api_messages}
+              "/api/report": api_report, "/api/messages": api_messages, "/api/approvals": api_approvals}
 _last_report_request = [0.0]
 
 
-def control(action: str, bot: str) -> str:
+def control(action: str, bot: str, approval_id=None) -> str:
+    if action in ("approve", "reject"):
+        try:
+            aid = int(approval_id)
+        except (TypeError, ValueError):
+            raise ValueError("geçersiz onay numarası") from None
+        rows = q("SELECT status, expires FROM approvals WHERE id=?", (aid,))
+        if not rows or rows[0]["status"] != "bekliyor":
+            raise ValueError("bu istek artık beklemede değil")
+        if datetime.now(timezone.utc) > datetime.fromisoformat(rows[0]["expires"]):
+            raise ValueError("isteğin süresi dolmuş")
+        new = "onaylandi" if action == "approve" else "reddedildi"
+        if not state.set_approval(aid, new, "panelden", only_from="bekliyor"):
+            raise ValueError("istek bu arada değişti")
+        return (f"Alım #{aid} ONAYLANDI: bot birkaç saniye içinde fiyatı yeniden kontrol edip uygulayacak."
+                if action == "approve" else f"Alım #{aid} reddedildi.")
     if action == "kill_on":
         KILL_SWITCH.parent.mkdir(parents=True, exist_ok=True)
         KILL_SWITCH.write_text("panelden durduruldu", encoding="utf-8")
@@ -231,7 +253,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = min(int(self.headers.get("Content-Length", 0)), 1000)
             body = json.loads(self.rfile.read(length) or b"{}")
-            msg = control(str(body.get("action", "")), str(body.get("bot", "")))
+            msg = control(str(body.get("action", "")), str(body.get("bot", "")), body.get("id"))
             log.info("panel komutu: %s %s", body.get("action"), body.get("bot", ""))
             self._json(200, {"mesaj": msg})
         except Exception as e:

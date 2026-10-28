@@ -42,6 +42,8 @@ class Book:
     pending: str | None = None     # "in" | "add" | "out"
     pend_stop: float = 0.0
     cooldown: int = 0
+    ex_stop_id: str | None = None  # canlı: borsada bekleyen stop emrinin numarası
+    ex_stop_price: float = 0.0
 
 
 @dataclass
@@ -99,15 +101,26 @@ class Portfolio:
             self.rm.new_day(self.equity())
 
     # ---- alım / satım --------------------------------------------------
-    def _buy(self, s, t, px, stop_dist):
-        b = self.books[s]
+    # Karar (size_order) paper ve canlıda aynıdır. Kayıt (_book_buy/_book_sell) paper'da
+    # tahmini, canlıda borsanın GERÇEK dolum fiyatı ve tutarıyla yapılır.
+    def size_order(self, s, px, stop_dist):
+        """Risk kuralına göre ne kadar alınmalı? (adet, tahmini dolum, stop) veya None."""
         fill = px * (1 + self.slip)
         stop = fill - stop_dist
         q = self.rm.size(self.equity(), fill, stop) * self.gate_mult(s)
         q = min(q, self.cash / (fill * (1 + self.fee)))    # nakitten fazla alınamaz
         if q * fill < self.rm.min_notional:
-            return
-        cost = q * fill * (1 + self.fee)
+            return None
+        return q, fill, stop
+
+    def _buy(self, s, t, px, stop_dist):
+        o = self.size_order(s, px, stop_dist)
+        if o:
+            q, fill, stop = o
+            self._book_buy(s, t, q, fill, q * fill * (1 + self.fee), stop)
+
+    def _book_buy(self, s, t, q, fill, cost, stop):
+        b = self.books[s]
         self.cash -= cost
         adding = b.qty > 0
         if not adding:
@@ -124,7 +137,10 @@ class Portfolio:
     def _sell(self, s, t, px, why):
         b = self.books[s]
         fill = px * (1 - self.slip)
-        proceeds = b.qty * fill * (1 - self.fee)
+        self._book_sell(s, t, fill, b.qty * fill * (1 - self.fee), why)
+
+    def _book_sell(self, s, t, fill, proceeds, why):
+        b = self.books[s]
         self.cash += proceeds
         tr = Trade(s, b.entry_t, t, b.cost / b.qty, fill, b.qty, proceeds - b.cost, why, b.units)
         self.trades.append(tr)

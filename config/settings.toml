@@ -66,6 +66,18 @@ capital_share = 0.5
 risk_per_trade = 0.02      # Testte bu değerle doğrulandı; sabit tavan %2
 max_drawdown = 0.30        # Sabit tavan %30
 
+# ---- GERÇEK PARA MODU ----
+# Açılması için ÜÇ şart: enabled = true, ~/.trader/CANLI_ONAY dosyası ve API anahtarında Al-Sat izni.
+# Alımlar her zaman panelden kullanıcı onayı ister; satışlar onaysızdır.
+[live]
+enabled = false
+capital_usdt = 100.0       # Botlara verilecek toplam gerçek sermaye (USDT). Sabit tavan: 300
+max_order_usdt = 60.0      # Tek emirde en fazla
+price_band = 0.01          # Emir anında fiyat referanstan en fazla %1 farklı olabilir
+limit_slip = 0.003         # Fiyatı sınırlı emirde en fazla %0,3 kötü fiyat
+fill_wait_sec = 20
+approval_ttl_min = 60      # Onay isteği 60 dakika geçerli
+
 [pullback]                 # Strateji B: 4s trend + 15dk geri çekilme girişi
 fast_ema = 50
 slow_ema = 200

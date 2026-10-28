@@ -440,6 +440,213 @@ class SupervisedOrderTests(unittest.TestCase):
             self.assertNotIn("create_order", src, name)
 
 
+class FakeExchange:
+    """Gerçek modu test etmek için sahte borsa: emirler anında dolar, stoplar bekler."""
+
+    def __init__(self, usdt=200.0):
+        self.px = {"BTC/USDT": 80000.0, "ETH/USDT": 2400.0}
+        self.bal = {"USDT": usdt, "BTC": 0.0, "ETH": 0.0}
+        self.open, self.trades, self.created, self.n = {}, [], [], 0
+        self.no_permission = False
+
+    def load_markets(self):
+        return {s: {"limits": {"cost": {"min": 9.91}}} for s in self.px}
+
+    def fetch_order_book(self, s, n):
+        p = self.px[s]
+        return {"bids": [[p * 0.9999, 1]], "asks": [[p * 1.0001, 1]]}
+
+    def fetch_balance(self):
+        return {"total": dict(self.bal), "free": dict(self.bal)}
+
+    def amount_to_precision(self, s, a):
+        return f"{int(a * 1e8) / 1e8:.8f}"
+
+    def price_to_precision(self, s, p):
+        return f"{p:.2f}"
+
+    def create_order(self, s, typ, side, amount, price=None, params=None):
+        self.n += 1
+        oid = str(self.n)
+        self.created.append((typ, side, s, amount, price))
+        if typ == "stopMarket":
+            self.open[oid] = {"s": s, "amount": amount, "stop": (params or {})["stopPrice"]}
+        else:
+            self._fill(oid, s, side, amount, self.px[s])
+        return {"id": oid}
+
+    def _fill(self, oid, s, side, amount, price):
+        base, cost = s.split("/")[0], amount * price
+        fee = cost * 0.0024                      # komisyon + KDV
+        if side == "buy":
+            self.bal["USDT"] -= cost + fee
+            self.bal[base] += amount
+        else:
+            self.bal["USDT"] += cost - fee
+            self.bal[base] -= amount
+        self.trades.append({"order": oid, "amount": amount, "cost": cost, "fee": {"cost": fee, "currency": "USDT"}})
+
+    def fetch_open_orders(self, s=None):
+        return [{"id": k} for k, v in self.open.items() if s is None or v["s"] == s]
+
+    def cancel_order(self, oid, s=None):
+        import ccxt
+        if self.no_permission:
+            raise ccxt.AuthenticationError("401")
+        if str(oid) not in self.open:
+            raise ccxt.OrderNotFound("yok")
+        del self.open[str(oid)]
+
+    def fetch_my_trades(self, s, limit=50):
+        return list(self.trades)
+
+    def trigger_stops(self, s, price):
+        self.px[s] = price
+        for oid, o in list(self.open.items()):
+            if o["s"] == s and price <= o["stop"]:
+                del self.open[oid]
+                self._fill(oid, s, "sell", o["amount"], price)
+
+
+class LiveModeTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from trader import broker, live_portfolio, state
+        self.tmp = Path(tempfile.mkdtemp())
+        self.patches = [mock.patch.object(state, "DB_PATH", self.tmp / "state.db"),
+                        mock.patch.object(broker, "LOCK_FILE", self.tmp / "hesap.lock"),
+                        mock.patch.object(broker, "log", mock.MagicMock())]
+        for p in self.patches:
+            p.start()
+        self.state = state
+        self.ex = FakeExchange()
+        self.br = broker.LiveBroker(CFG, ex=self.ex, sleep=lambda s: None)
+        self.pf = live_portfolio.LivePortfolio(CFG, 100.0, ["BTC/USDT", "ETH/USDT"], 1, live=True,
+                                               broker=self.br, bot="kaplumbaga")
+        self.t = pd.Timestamp("2026-11-01", tz="UTC")
+        self.row = SimpleNamespace(entry=True, exit=False, stop_dist=2400.0, trail_dist=3600.0)
+        self.events = []
+        self.pf.on_event = lambda t, k, m, tr, meta: self.events.append(k)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def _signal_and_approve(self):
+        s = "BTC/USDT"
+        self.pf.close_phase(s, self.t, 80000, 80000, self.row)
+        self.pf.open_phase(s, self.t, 80000)
+        a = self.state.approvals_for("kaplumbaga", "bekliyor")[0]
+        self.state.set_approval(a["id"], "onaylandi", only_from="bekliyor")
+        return self.state.approvals_for("kaplumbaga", "onaylandi")[0]
+
+    def test_buy_signal_only_requests_approval(self):
+        self.pf.close_phase("BTC/USDT", self.t, 80000, 80000, self.row)
+        self.pf.open_phase("BTC/USDT", self.t, 80000)
+        self.assertEqual(self.ex.created, [])                      # borsaya HİÇBİR emir gitmedi
+        self.assertEqual(len(self.state.approvals_for("kaplumbaga", "bekliyor")), 1)
+        self.assertIn("ONAY_BEKLIYOR", self.events)
+
+    def test_approved_buy_places_exchange_stop_once(self):
+        a = self._signal_and_approve()
+        self.assertEqual(self.pf.execute_approved(a, self.t, 80000), "uygulandı")
+        b = self.pf.books["BTC/USDT"]
+        self.assertAlmostEqual(b.qty, self.ex.bal["BTC"])          # defter = borsa
+        self.assertLessEqual(b.cost, a["usdt"] * 1.01)              # onaylanandan fazla değil
+        self.assertTrue(b.ex_stop_id and b.ex_stop_id in self.ex.open)
+        self.assertNotEqual(self.pf.execute_approved(a, self.t, 80000), "uygulandı")   # ikinci kez yok
+        self.assertEqual(len([c for c in self.ex.created if c[0] == "limit"]), 1)
+        # İkinci duvar: pozisyon kapansa bile aynı onay veritabanında tek kullanımlık
+        self.pf.books["BTC/USDT"].qty = 0
+        self.assertEqual(self.pf.execute_approved(a, self.t, 80000), "durum değişti")
+        self.assertEqual(len([c for c in self.ex.created if c[0] == "limit"]), 1)
+
+    def test_approval_cancelled_when_price_moved_expired_or_killed(self):
+        from unittest import mock
+
+        from trader import engine
+        a = self._signal_and_approve()
+        self.assertIn("oynamış", self.pf.execute_approved(a, self.t, 84000))
+        a = self._signal_and_approve()
+        a["expires"] = "2000-01-01T00:00:00+00:00"
+        self.assertIn("süresi", self.pf.execute_approved(a, self.t, 80000))
+        a = self._signal_and_approve()
+        with mock.patch.object(engine, "kill_switch_active", return_value=True):
+            self.assertIn("acil", self.pf.execute_approved(a, self.t, 80000))
+        self.assertEqual(self.ex.created, [])
+
+    def test_trailing_stop_moves_exchange_stop(self):
+        self.pf.execute_approved(self._signal_and_approve(), self.t, 80000)
+        old = self.pf.books["BTC/USDT"].ex_stop_id
+        self.pf.books["BTC/USDT"].stop += 1000
+        self.pf.sync_stop("BTC/USDT", self.t)
+        new = self.pf.books["BTC/USDT"].ex_stop_id
+        self.assertNotEqual(old, new)
+        self.assertNotIn(old, self.ex.open)
+        self.assertIn(new, self.ex.open)
+
+    def test_exchange_stop_fill_is_recorded(self):
+        self.pf.execute_approved(self._signal_and_approve(), self.t, 80000)
+        self.ex.trigger_stops("BTC/USDT", 77000)                    # bilgisayar kapalıyken düştü
+        self.pf.check_exchange_stop("BTC/USDT", self.t)
+        self.assertEqual(self.pf.books["BTC/USDT"].qty, 0)
+        self.assertEqual(self.pf.trades[-1].reason, "borsa-stop")
+        self.assertAlmostEqual(self.ex.bal["BTC"], 0)
+
+    def test_live_stop_sells_and_cancels_exchange_stop(self):
+        self.pf.execute_approved(self._signal_and_approve(), self.t, 80000)
+        stop = self.pf.books["BTC/USDT"].stop
+        self.ex.px["BTC/USDT"] = stop - 10
+        self.pf.check_stop("BTC/USDT", self.t, stop - 10)          # onaysız satış
+        self.assertEqual(self.pf.books["BTC/USDT"].qty, 0)
+        self.assertEqual(self.ex.open, {})                          # borsada artık stop kalmadı
+        self.assertAlmostEqual(self.ex.bal["BTC"], 0)
+
+    def test_lost_exchange_stop_is_replaced(self):
+        self.pf.execute_approved(self._signal_and_approve(), self.t, 80000)
+        self.ex.open.clear()                                        # kullanıcı borsada elle iptal etti
+        self.pf.check_exchange_stop("BTC/USDT", self.t)
+        self.assertEqual(len(self.ex.open), 1)
+
+    def test_broker_walls(self):
+        from trader.safety import SafetyError
+        with self.assertRaises(SafetyError):
+            self.br.buy("BTC/USDT", CFG["live"]["max_order_usdt"] + 1, 80000)    # tavan
+        with self.assertRaises(SafetyError):
+            self.br.buy("BTC/USDT", 5, 80000)                                     # minimum
+        with self.assertRaises(SafetyError):
+            self.br.buy("PEPE/USDT", 20, 1)                                       # izinsiz coin
+        with self.assertRaises(SafetyError):
+            self.br.buy("BTC/USDT", 20, 70000)                                    # fiyat bandı
+        self.assertEqual(self.ex.created, [])
+
+    def test_no_trade_permission_blocks_live(self):
+        from trader.safety import SafetyError
+        self.ex.no_permission = True
+        with self.assertRaises(SafetyError):
+            self.br.check_trade_permission()
+
+    def test_live_mode_needs_both_locks_and_caps(self):
+        import copy
+        from unittest import mock
+
+        from trader import safety
+        cfg = copy.deepcopy(CFG)
+        with self.assertRaises(safety.SafetyError):
+            safety.assert_live_allowed(cfg)                         # enabled = false
+        cfg["live"]["enabled"] = True
+        with mock.patch.object(safety, "LIVE_APPROVAL_FILE", self.tmp / "yok"):
+            with self.assertRaises(safety.SafetyError):
+                safety.assert_live_allowed(cfg)                     # onay dosyası yok
+        cfg["live"]["capital_usdt"] = 5000
+        with self.assertRaises(safety.SafetyError):
+            safety.validate_config(cfg)                             # sermaye tavanı
+
+
 class SettleTests(unittest.TestCase):
     def test_pending_decision_is_settled_like_live(self):
         """Son kapanışta verilen alım kararı, raporda da canlıdaki gibi uygulanmalı."""

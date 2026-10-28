@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS messages (    -- botlar arası önemli haberler
     kind TEXT NOT NULL, symbol TEXT NOT NULL, price REAL,
     handled_ts TEXT, response TEXT       -- alan botun KENDİ değerlendirmesi
 );
+CREATE TABLE IF NOT EXISTS approvals (   -- canlı mod: gerçek ALIM için kullanıcı onayı
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot TEXT NOT NULL, symbol TEXT NOT NULL,
+    usdt REAL NOT NULL, ref_price REAL NOT NULL, stop_dist REAL NOT NULL,
+    created TEXT NOT NULL, expires TEXT NOT NULL,
+    status TEXT NOT NULL,                -- bekliyor | onaylandi | reddedildi | suresi_doldu | uygulandi | iptal
+    decided TEXT, note TEXT
+);
 CREATE TABLE IF NOT EXISTS reports (     -- haftalık kontrol raporları
     ts TEXT NOT NULL, verdict TEXT NOT NULL, body TEXT NOT NULL
 );
@@ -126,6 +134,36 @@ def answer_message(msg_id, response):
     with closing(connect()) as con, con:
         con.execute("UPDATE messages SET handled_ts=?, response=? WHERE id=?",
                     (datetime.now(timezone.utc).isoformat(), response, msg_id))
+
+
+def request_approval(bot, symbol, usdt, ref_price, stop_dist, ttl_sec) -> int | None:
+    """Gerçek alım için onay isteği. Aynı bot+coin için bekleyen istek varsa yenisi açılmaz."""
+    now = datetime.now(timezone.utc)
+    with closing(connect()) as con, con:
+        if con.execute("SELECT 1 FROM approvals WHERE bot=? AND symbol=? AND status IN ('bekliyor','onaylandi')",
+                       (bot, symbol)).fetchone():
+            return None
+        exp = datetime.fromtimestamp(now.timestamp() + ttl_sec, timezone.utc)
+        return con.execute("INSERT INTO approvals(bot, symbol, usdt, ref_price, stop_dist, created, expires, status) "
+                           "VALUES (?,?,?,?,?,?,?,'bekliyor')",
+                           (bot, symbol, usdt, ref_price, stop_dist, now.isoformat(), exp.isoformat())).lastrowid
+
+
+def approvals_for(bot, status) -> list[dict]:
+    with closing(connect()) as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute("SELECT * FROM approvals WHERE bot=? AND status=? ORDER BY id", (bot, status))]
+
+
+def set_approval(approval_id, status, note="", only_from=None) -> bool:
+    """Durumu değiştir. only_from verilirse sadece o durumdaysa değiştirir (yarış durumuna karşı)."""
+    with closing(connect()) as con, con:
+        sql = "UPDATE approvals SET status=?, decided=?, note=? WHERE id=?"
+        args = [status, datetime.now(timezone.utc).isoformat(), note, approval_id]
+        if only_from:
+            sql += " AND status=?"
+            args.append(only_from)
+        return con.execute(sql, args).rowcount == 1
 
 
 def last_report_age_days() -> float | None:

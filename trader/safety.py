@@ -28,8 +28,24 @@ ALLOWED_QUOTES = {"USDT", "TRY"}
 ALLOWED_BASES = {"BTC", "ETH"}
 
 
+MAX_LIVE_CAPITAL_USDT = 300.0          # Gerçek modda botlara verilebilecek en fazla sermaye (~15.000 TL)
+LIVE_APPROVAL_FILE = HOME / "CANLI_ONAY"   # Kullanıcının bilinçli açtığı ikinci kilit
+
+
 class SafetyError(RuntimeError):
     """Güvenlik kuralı ihlali: program durur, işlem yapılmaz."""
+
+
+def live_requested(cfg: dict) -> bool:
+    return bool(cfg.get("live", {}).get("enabled"))
+
+
+def assert_live_allowed(cfg: dict) -> None:
+    """Gerçek mod için iki kilit: ayarda enabled=true VE ~/.trader/CANLI_ONAY dosyası."""
+    if not live_requested(cfg):
+        raise SafetyError("Gerçek mod ayarda kapalı (live.enabled = false).")
+    if not LIVE_APPROVAL_FILE.exists():
+        raise SafetyError(f"Gerçek mod onay dosyası yok: {LIVE_APPROVAL_FILE}")
 
 
 def validate_config(cfg: dict) -> None:
@@ -65,6 +81,17 @@ def validate_config(cfg: dict) -> None:
         for key in ("risk_per_trade", "max_drawdown"):
             if not (0 < b[key] <= HARD_LIMITS[key]):
                 raise SafetyError(f"bots.{name}.{key}={b[key]} izinli aralık dışında (0, {HARD_LIMITS[key]}].")
+
+    live = cfg.get("live")
+    if live:
+        if not 0 < live["capital_usdt"] <= MAX_LIVE_CAPITAL_USDT:
+            raise SafetyError(f"live.capital_usdt (0, {MAX_LIVE_CAPITAL_USDT:.0f}] aralığında olmalı.")
+        if not 0 < live["max_order_usdt"] <= live["capital_usdt"]:
+            raise SafetyError("live.max_order_usdt sermayeden büyük olamaz.")
+        if not 0 < live["price_band"] <= 0.02 or not 0 < live["limit_slip"] <= 0.01:
+            raise SafetyError("live.price_band <= %2 ve live.limit_slip <= %1 olmalı.")
+        if not 5 <= live["approval_ttl_min"] <= 240:
+            raise SafetyError("live.approval_ttl_min 5-240 dakika olmalı.")
 
     costs = cfg["costs"]
     if costs["fee"] < 0.001 or costs["slippage"] < 0.0002:
