@@ -22,7 +22,10 @@ from datetime import datetime, timezone
 import ccxt
 
 from . import state
+from .net import force_ipv4
 from .safety import HOME, SafetyError, kill_switch_active, load_secrets, setup_logging
+
+force_ipv4()      # API anahtarı IPv4 adresine kısıtlı
 
 SYMBOL = "BTC/TRY"
 BASE, QUOTE = "BTC", "TRY"

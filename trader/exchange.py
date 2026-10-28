@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import ccxt
 
+from .net import force_ipv4
 from .safety import SafetyError, load_secrets
+
+force_ipv4()      # API anahtarı IPv4 adresine kısıtlı
 
 ALLOWED = ("balance", "open_orders", "my_trades", "trading_fees", "markets")
 
