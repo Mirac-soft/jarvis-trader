@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" font-family="'Segoe UI',Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#121a33"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3cd0a0"/><stop offset="1" stop-color="#2a7ad8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" fill="url(#bg)"/>
+  <!-- price line -->
+  <polyline fill="none" stroke="url(#line)" stroke-width="3" opacity="0.55"
+    points="40,250 140,230 240,255 340,200 440,215 540,150 640,175 740,120 840,150 940,95 1040,130 1140,70 1240,100"/>
+  <g>
+    <circle cx="740" cy="120" r="5" fill="#3cd0a0"/><circle cx="1140" cy="70" r="5" fill="#3cd0a0"/>
+  </g>
+  <text x="64" y="130" fill="#ffffff" font-size="68" font-weight="800" letter-spacing="1">JARVIS Trader</text>
+  <text x="66" y="178" fill="#9fb3d8" font-size="26">Safety-first, rule-based crypto trading bot framework</text>
+  <text x="66" y="236" fill="#3cd0a0" font-size="19" font-weight="600" letter-spacing="2">PYTHON  ·  BACKTEST  ·  PAPER TRADING  ·  LOCAL DASHBOARD</text>
+</svg>
