@@ -31,11 +31,23 @@ the live bots are still making the same decisions as the tested engine before an
 - **Control report**: are the live bots behaving like the backtest? Real-money mode stays locked until the
   reports come back consistent.
 
-## ⚠️ Disclaimer
+## ⚠️ Disclaimer — read this first
 
-This software is provided **as is**, with no warranty, under the Apache 2.0 license. Trading crypto carries
-real risk of losing money. Real-money mode ships **disabled** and requires three deliberate steps to enable.
-You are responsible for anything you run with it.
+**This software is provided "AS IS", with no warranty of any kind, under the Apache 2.0 license
+(see sections 7 and 8).**
+
+- This is **not financial advice** and **not a recommendation** to trade anything.
+- Trading crypto carries real risk of **losing money**, including all of it.
+- The author accepts **no liability** for any loss, damage or consequence arising from the use of this
+  software, by anyone, in any way — whether run as-is, modified, or built upon.
+- You use it entirely **at your own risk**. By running it you take full responsibility for your own trades,
+  keys, funds and decisions.
+- Real-money mode ships **disabled** and requires three deliberate steps to enable. If you turn it on, that
+  choice and its outcome are yours alone.
+
+> 🇹🇷 **Sorumluluk reddi:** Bu yazılım hiçbir garanti verilmeden "olduğu gibi" sunulur. Finansal tavsiye
+> değildir. Kripto işlemlerinde paranızı kaybedebilirsiniz. Bu yazılımı kim, nasıl kullanırsa kullansın,
+> doğabilecek hiçbir zarardan geliştirici sorumlu değildir. Kullanım tamamen sizin sorumluluğunuzdadır.
 
 ## Screenshots
 
